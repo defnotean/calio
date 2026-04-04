@@ -11,7 +11,6 @@ import org.spongepowered.asm.mixin.gen.Accessor;
 @Mixin(Ingredient.class)
 public interface IngredientAccessor {
 
-    // TODO: Verify against MC 26.1 source - Ingredient internals may differ
     @Accessor
     ItemStack[] getItems();
 

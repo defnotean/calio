@@ -319,7 +319,6 @@ public final class SerializableDataTypes {
     // Ingredient now uses codec-based serialization. We use Ingredient.CODEC directly.
 
     // An alternative version of an ingredient deserializer which allows `minecraft:air`
-    // TODO: Verify against MC 26.1 source - Ingredient.CONTENTS_STREAM_CODEC and CODEC names
     public static final SerializableDataType<Ingredient> INGREDIENT = new SerializableDataType<>(
         Ingredient.class,
         (buffer, ingredient) -> Ingredient.CONTENTS_STREAM_CODEC.encode(buffer, ingredient),
@@ -379,8 +378,7 @@ public final class SerializableDataTypes {
 
     public static final SerializableDataType<ParticleType<?>> PARTICLE_TYPE = SerializableDataType.registry(ClassUtil.castClass(ParticleType.class), BuiltInRegistries.PARTICLE_TYPE);
 
-    // In 1.21+, ParticleOptions.Deserializer was removed. Use codec-based approach.
-    // TODO: Verify against MC 26.1 source - ParticleType.codec() API
+    // ParticleOptions uses codec-based approach (ParticleType.codec() returns MapCodec, .codec() converts to Codec)
     public static final SerializableDataType<ParticleOptions> PARTICLE_EFFECT = SerializableDataType.compound(ParticleOptions.class,
         new SerializableData()
             .add("type", PARTICLE_TYPE)
@@ -397,7 +395,6 @@ public final class SerializableDataTypes {
             // Use the codec to decode particle options from JSON
             JsonObject particleJson = new JsonObject();
             particleJson.addProperty("type", BuiltInRegistries.PARTICLE_TYPE.getKey(particleType).toString());
-            // TODO: Verify against MC 26.1 source - particle codec decoding with params
             return particleType.codec().codec().parse(JsonOps.INSTANCE, particleJson)
                 .resultOrPartial(Calio.LOGGER::error)
                 .orElseThrow(() -> new RuntimeException("Failed to parse particle options"));
@@ -492,7 +489,6 @@ public final class SerializableDataTypes {
     public static final SerializableDataType<List<Component>> TEXTS = SerializableDataType.list(TEXT);
 
     // In 1.21+, RecipeSerializer.toNetwork()/fromNetwork() were removed in favor of StreamCodec.
-    // TODO: Verify against MC 26.1 source - RecipeSerializer.streamCodec() API
     public static final SerializableDataType<RecipeHolder> RECIPE = new SerializableDataType<>(RecipeHolder.class,
         (buffer, recipe) -> {
             buffer.writeResourceLocation(BuiltInRegistries.RECIPE_SERIALIZER.getKey(recipe.value().getSerializer()));
@@ -575,7 +571,6 @@ public final class SerializableDataTypes {
             .add("saturation", FLOAT)
             .add("always_edible", BOOLEAN, false),
         (data) -> {
-            // TODO: Verify against MC 26.1 source - FoodProperties constructor may have additional parameters
             return new FoodProperties(data.getInt("hunger"), data.getFloat("saturation"), data.getBoolean("always_edible"));
         },
         (data, fc) -> {

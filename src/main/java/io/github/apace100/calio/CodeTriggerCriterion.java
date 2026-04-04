@@ -10,7 +10,6 @@ import net.minecraft.resources.ResourceLocation;
 
 import java.util.Optional;
 
-// TODO: Verify against MC 26.1 source - SimpleCriterionTrigger API may have additional changes
 public class CodeTriggerCriterion extends SimpleCriterionTrigger<CodeTriggerCriterion.Conditions> {
 
     public static final CodeTriggerCriterion INSTANCE = new CodeTriggerCriterion();

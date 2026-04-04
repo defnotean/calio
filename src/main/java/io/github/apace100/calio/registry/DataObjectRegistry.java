@@ -313,6 +313,9 @@ public class DataObjectRegistry<T extends DataObject<T>> {
                         if(errorHandler != null) {
                             errorHandler.accept(id, e);
                         }
+                    } finally {
+                        SerializableData.CURRENT_NAMESPACE.remove();
+                        SerializableData.CURRENT_PATH.remove();
                     }
                 }
             });
