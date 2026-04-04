@@ -4,9 +4,9 @@ import com.google.common.collect.ImmutableSet;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonSyntaxException;
 import io.github.apace100.calio.Calio;
-import net.minecraft.entity.attribute.EntityAttributeModifier;
-import net.minecraft.network.PacketByteBuf;
-import net.minecraft.util.Identifier;
+import net.minecraft.world.entity.ai.attributes.AttributeModifier;
+import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.resources.ResourceLocation;
 
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -17,10 +17,12 @@ import java.util.function.Function;
 public class SerializableData {
 
     // Should be set to the current namespace of the file that is being read. Allows using * in identifiers.
-    public static String CURRENT_NAMESPACE;
+    // Made ThreadLocal for thread safety during concurrent data loading.
+    public static final ThreadLocal<String> CURRENT_NAMESPACE = new ThreadLocal<>();
 
     // Should be set to the current path of the file that is being read. Allows using * in identifiers.
-    public static String CURRENT_PATH;
+    // Made ThreadLocal for thread safety during concurrent data loading.
+    public static final ThreadLocal<String> CURRENT_PATH = new ThreadLocal<>();
 
     private final LinkedHashMap<String, Field<?>> dataFields = new LinkedHashMap<>();
 
@@ -39,7 +41,7 @@ public class SerializableData {
         return this;
     }
 
-    public void write(PacketByteBuf buffer, Instance instance) {
+    public void write(FriendlyByteBuf buffer, Instance instance) {
         dataFields.forEach((name, field) -> {
             try {
 
@@ -75,7 +77,7 @@ public class SerializableData {
 
     }
 
-    public Instance read(PacketByteBuf buffer) {
+    public Instance read(FriendlyByteBuf buffer) {
 
         Instance instance = new Instance();
         dataFields.forEach((name, field) -> {
@@ -205,11 +207,11 @@ public class SerializableData {
             return get(name);
         }
 
-        public Identifier getId(String name) {
+        public ResourceLocation getId(String name) {
             return get(name);
         }
 
-        public EntityAttributeModifier getModifier(String name) {
+        public AttributeModifier getModifier(String name) {
             return get(name);
         }
 

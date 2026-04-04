@@ -1,7 +1,7 @@
 package io.github.apace100.calio.access;
 
-import net.minecraft.item.ItemStack;
-import net.minecraft.recipe.Ingredient;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.crafting.Ingredient;
 
 import java.util.List;
 import java.util.Map;

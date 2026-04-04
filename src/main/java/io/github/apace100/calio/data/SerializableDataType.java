@@ -10,17 +10,17 @@ import io.github.apace100.calio.ClassUtil;
 import io.github.apace100.calio.FilterableWeightedList;
 import io.github.apace100.calio.mixin.WeightedListEntryAccessor;
 import io.github.apace100.calio.util.ArgumentWrapper;
-import io.github.apace100.calio.util.DynamicIdentifier;
+import io.github.apace100.calio.util.DynamicResourceLocation;
 import io.github.apace100.calio.util.TagLike;
-import net.minecraft.network.PacketByteBuf;
-import net.minecraft.registry.DynamicRegistryManager;
-import net.minecraft.registry.Registry;
-import net.minecraft.registry.RegistryKey;
-import net.minecraft.registry.entry.RegistryEntry;
-import net.minecraft.registry.tag.TagKey;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.JsonHelper;
-import net.minecraft.util.collection.WeightedList;
+import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.core.RegistryAccess;
+import net.minecraft.core.Registry;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.core.Holder;
+import net.minecraft.tags.TagKey;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.util.GsonHelper;
+import net.minecraft.world.entity.ai.behavior.WeightedList;
 
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -31,15 +31,15 @@ import java.util.function.Function;
 public class SerializableDataType<T> {
 
     private final Class<T> dataClass;
-    private final BiConsumer<PacketByteBuf, T> send;
-    private final Function<PacketByteBuf, T> receive;
+    private final BiConsumer<FriendlyByteBuf, T> send;
+    private final Function<FriendlyByteBuf, T> receive;
     private final Function<JsonElement, T> read;
     private final Function<T, JsonElement> write;
 
     @Deprecated
     public SerializableDataType(Class<T> dataClass,
-                                BiConsumer<PacketByteBuf, T> send,
-                                Function<PacketByteBuf, T> receive,
+                                BiConsumer<FriendlyByteBuf, T> send,
+                                Function<FriendlyByteBuf, T> receive,
                                 Function<JsonElement, T> read) {
         this(dataClass, send, receive, read, (obj) -> {
             Calio.LOGGER.warn("Could not write serializable data type of class {} as it does not have a write function set.", dataClass.getName());
@@ -48,8 +48,8 @@ public class SerializableDataType<T> {
     }
 
     public SerializableDataType(Class<T> dataClass,
-                                BiConsumer<PacketByteBuf, T> send,
-                                Function<PacketByteBuf, T> receive,
+                                BiConsumer<FriendlyByteBuf, T> send,
+                                Function<FriendlyByteBuf, T> receive,
                                 Function<JsonElement, T> read,
                                 Function<T, JsonElement> write) {
         this.dataClass = dataClass;
@@ -59,11 +59,11 @@ public class SerializableDataType<T> {
         this.write = write;
     }
 
-    public void send(PacketByteBuf buffer, Object value) {
+    public void send(FriendlyByteBuf buffer, Object value) {
         send.accept(buffer, cast(value));
     }
 
-    public T receive(PacketByteBuf buffer) {
+    public T receive(FriendlyByteBuf buffer) {
         return receive.apply(buffer);
     }
 
@@ -179,7 +179,7 @@ public class SerializableDataType<T> {
                     try {
                         JsonObject weightedObj = je.getAsJsonObject();
                         T elem = singleDataType.read(weightedObj.get("element"));
-                        int weight = JsonHelper.getInt(weightedObj, "weight");
+                        int weight = GsonHelper.getAsInt(weightedObj, "weight");
                         list.add(elem, weight);
                     } catch(DataException e) {
                         throw e.prepend("[" + i + "]");
@@ -196,6 +196,7 @@ public class SerializableDataType<T> {
                 JsonObject listObject = new JsonObject();
                 listObject.add("element", singleDataType.write.apply(value.getElement()));
                 listObject.addProperty("weight", value.getWeight());
+                array.add(listObject);
             }
             return array;
         });
@@ -210,28 +211,28 @@ public class SerializableDataType<T> {
     }
 
     public static <T> SerializableDataType<T> registry(Class<T> dataClass, Registry<T> registry, boolean showPossibleValues) {
-        return registry(dataClass, registry, Identifier.DEFAULT_NAMESPACE, showPossibleValues);
+        return registry(dataClass, registry, ResourceLocation.DEFAULT_NAMESPACE, showPossibleValues);
     }
 
     public static <T> SerializableDataType<T> registry(Class<T> dataClass, Registry<T> registry, String defaultNamespace, boolean showPossibleValues) {
         return registry(dataClass, registry, defaultNamespace, (reg, id) -> {
-            String possibleValues = showPossibleValues ? " Expected value to be any of " + String.join(", ", reg.getIds().stream().map(Identifier::toString).toList()) : "";
-            return new RuntimeException("Type \"%s\" is not registered in registry \"%s\".%s".formatted(id, registry.getKey().getValue(), possibleValues));
+            String possibleValues = showPossibleValues ? " Expected value to be any of " + String.join(", ", reg.keySet().stream().map(ResourceLocation::toString).toList()) : "";
+            return new RuntimeException("Type \"%s\" is not registered in registry \"%s\".%s".formatted(id, registry.key().location(), possibleValues));
         });
     }
 
-    public static <T> SerializableDataType<T> registry(Class<T> dataClass, Registry<T> registry, BiFunction<Registry<T>, Identifier, RuntimeException> exception) {
-        return registry(dataClass, registry, Identifier.DEFAULT_NAMESPACE, exception);
+    public static <T> SerializableDataType<T> registry(Class<T> dataClass, Registry<T> registry, BiFunction<Registry<T>, ResourceLocation, RuntimeException> exception) {
+        return registry(dataClass, registry, ResourceLocation.DEFAULT_NAMESPACE, exception);
     }
 
-    public static <T> SerializableDataType<T> registry(Class<T> dataClass, Registry<T> registry, String defaultNamespace, BiFunction<Registry<T>, Identifier, RuntimeException> exception) {
+    public static <T> SerializableDataType<T> registry(Class<T> dataClass, Registry<T> registry, String defaultNamespace, BiFunction<Registry<T>, ResourceLocation, RuntimeException> exception) {
         return wrap(
             dataClass,
             SerializableDataTypes.STRING,
-            t -> Objects.requireNonNull(registry.getId(t)).toString(),
+            t -> Objects.requireNonNull(registry.getKey(t)).toString(),
             idString -> {
-                Identifier id = DynamicIdentifier.of(idString, defaultNamespace);
-                return registry.getOrEmpty(id).orElseThrow(() -> exception.apply(registry, id));
+                ResourceLocation id = DynamicResourceLocation.of(idString, defaultNamespace);
+                return registry.getOptional(id).orElseThrow(() -> exception.apply(registry, id));
             }
         );
     }
@@ -300,11 +301,11 @@ public class SerializableDataType<T> {
             ClassUtil.castClass(Map.class),
             (buffer, map) -> buffer.writeMap(
                 map,
-                PacketByteBuf::writeString,
+                FriendlyByteBuf::writeUtf,
                 valueDataType::send
             ),
             buffer -> buffer.readMap(
-                PacketByteBuf::readString,
+                FriendlyByteBuf::readUtf,
                 valueDataType::receive
             ),
             jsonElement -> {
@@ -334,8 +335,8 @@ public class SerializableDataType<T> {
 
     public static <T> SerializableDataType<T> mapped(Class<T> dataClass, BiMap<String, T> map) {
         return new SerializableDataType<>(dataClass,
-            (buf, t) -> buf.writeString(map.inverse().get(t)),
-            (buf) -> map.get(buf.readString(32767)),
+            (buf, t) -> buf.writeUtf(map.inverse().get(t)),
+            (buf) -> map.get(buf.readUtf(32767)),
             (json) -> {
                 if(json.isJsonPrimitive()) {
                     JsonPrimitive primitive = json.getAsJsonPrimitive();
@@ -365,18 +366,18 @@ public class SerializableDataType<T> {
             (t) -> base.write(toFunction.apply(t)));
     }
 
-    public static <T> SerializableDataType<TagKey<T>> tag(RegistryKey<? extends Registry<T>> registryRef) {
+    public static <T> SerializableDataType<TagKey<T>> tag(ResourceKey<? extends Registry<T>> registryRef) {
         return wrap(
             ClassUtil.castClass(TagKey.class),
             SerializableDataTypes.IDENTIFIER,
-            TagKey::id,
+            TagKey::location,
             id -> {
 
-                TagKey<T> tagKey = TagKey.of(registryRef, id);
-                Map<TagKey<?>, Collection<RegistryEntry<?>>> registryTags = Calio.REGISTRY_TAGS.get();
+                TagKey<T> tagKey = TagKey.create(registryRef, id);
+                Map<TagKey<?>, Collection<Holder<?>>> registryTags = Calio.REGISTRY_TAGS.get();
 
                 if (registryTags != null && !registryTags.containsKey(tagKey)) {
-                    throw new IllegalArgumentException("Tag \"" + id + "\" for registry \"" + registryRef.getValue() + "\" doesn't exist.");
+                    throw new IllegalArgumentException("Tag \"" + id + "\" for registry \"" + registryRef.location() + "\" doesn't exist.");
                 }
 
                 return tagKey;
@@ -385,29 +386,29 @@ public class SerializableDataType<T> {
         );
     }
 
-    public static <T> SerializableDataType<RegistryKey<T>> registryKey(RegistryKey<Registry<T>> registryRef) {
+    public static <T> SerializableDataType<ResourceKey<T>> registryKey(ResourceKey<Registry<T>> registryRef) {
         return registryKey(registryRef, List.of());
     }
 
-    public static <T> SerializableDataType<RegistryKey<T>> registryKey(RegistryKey<Registry<T>> registryRef, Collection<RegistryKey<T>> exemptions) {
+    public static <T> SerializableDataType<ResourceKey<T>> registryKey(ResourceKey<Registry<T>> registryRef, Collection<ResourceKey<T>> exemptions) {
         return wrap(
-            ClassUtil.castClass(RegistryKey.class),
+            ClassUtil.castClass(ResourceKey.class),
             SerializableDataTypes.IDENTIFIER,
-            RegistryKey::getValue,
+            ResourceKey::location,
             id -> {
 
-                RegistryKey<T> registryKey = RegistryKey.of(registryRef, id);
-                DynamicRegistryManager dynamicRegistries = Calio.DYNAMIC_REGISTRIES.get();
+                ResourceKey<T> resourceKey = ResourceKey.create(registryRef, id);
+                RegistryAccess dynamicRegistries = Calio.DYNAMIC_REGISTRIES.get();
 
-                if (dynamicRegistries == null || exemptions.contains(registryKey)) {
-                    return registryKey;
+                if (dynamicRegistries == null || exemptions.contains(resourceKey)) {
+                    return resourceKey;
                 }
 
-                if (!dynamicRegistries.get(registryRef).contains(registryKey)) {
-                    throw new IllegalArgumentException("Type \"" + id + "\" is not registered in registry \"" + registryRef.getValue() + "\"");
+                if (!dynamicRegistries.registryOrThrow(registryRef).containsKey(resourceKey)) {
+                    throw new IllegalArgumentException("Type \"" + id + "\" is not registered in registry \"" + registryRef.location() + "\"");
                 }
 
-                return registryKey;
+                return resourceKey;
 
             }
         );
@@ -481,12 +482,12 @@ public class SerializableDataType<T> {
     public static <T> SerializableDataType<TagLike<T>> tagLike(Registry<T> registry) {
         return new SerializableDataType<>(
             ClassUtil.castClass(TagLike.class),
-            (packetByteBuf, tagLike) ->
-                tagLike.write(packetByteBuf),
-            packetByteBuf -> {
+            (buf, tagLike) ->
+                tagLike.write(buf),
+            buf -> {
 
                 TagLike<T> tagLike = new TagLike<>(registry);
-                tagLike.read(packetByteBuf);
+                tagLike.read(buf);
 
                 return tagLike;
 

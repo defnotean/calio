@@ -3,11 +3,11 @@ package io.github.apace100.calio.data;
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonParseException;
-import net.minecraft.resource.ResourceManager;
-import net.minecraft.resource.SinglePreparationResourceReloader;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.Util;
-import net.minecraft.util.profiler.Profiler;
+import net.minecraft.server.packs.resources.ResourceManager;
+import net.minecraft.server.packs.resources.SimplePreparableReloadListener;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.Util;
+import net.minecraft.util.profiling.ProfilerFiller;
 import org.apache.commons.io.FilenameUtils;
 import org.quiltmc.parsers.json.JsonFormat;
 import org.quiltmc.parsers.json.JsonReader;
@@ -20,9 +20,9 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- *  Similar to {@link net.minecraft.resource.JsonDataLoader}, except it supports the JSON5 and JSONC spec.
+ *  Similar to {@link net.minecraft.server.packs.resources.SimpleJsonResourceReloadListener}, except it supports the JSON5 and JSONC spec.
  */
-public abstract class CalioJsonDataLoader extends SinglePreparationResourceReloader<Map<Identifier, JsonElement>> {
+public abstract class CalioJsonDataLoader extends SimplePreparableReloadListener<Map<ResourceLocation, JsonElement>> {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(CalioJsonDataLoader.class);
     private static final Map<String, JsonFormat> VALID_EXTENSIONS = Util.make(new HashMap<>(), map -> {
@@ -40,18 +40,18 @@ public abstract class CalioJsonDataLoader extends SinglePreparationResourceReloa
     }
 
     @Override
-    protected Map<Identifier, JsonElement> prepare(ResourceManager manager, Profiler profiler) {
+    protected Map<ResourceLocation, JsonElement> prepare(ResourceManager manager, ProfilerFiller profiler) {
 
-        Map<Identifier, JsonElement> result = new HashMap<>();
-        manager.findResources(directoryName, this::hasValidExtension).forEach((fileId, resource) -> {
+        Map<ResourceLocation, JsonElement> result = new HashMap<>();
+        manager.listResources(directoryName, this::hasValidExtension).forEach((fileId, resource) -> {
 
-            Identifier id = this.trim(fileId);
+            ResourceLocation id = this.trim(fileId);
             String fileExtension = "." + FilenameUtils.getExtension(fileId.getPath());
 
             JsonFormat jsonFormat = VALID_EXTENSIONS.get(fileExtension);
-            String packName = resource.getResourcePackName();
+            String packName = resource.sourcePackId();
 
-            try (BufferedReader resourceReader = resource.getReader()) {
+            try (BufferedReader resourceReader = resource.openAsReader()) {
 
                 GsonReader gsonReader = new GsonReader(JsonReader.create(resourceReader, jsonFormat));
                 JsonElement jsonElement = gson.fromJson(gsonReader, JsonElement.class);
@@ -76,12 +76,12 @@ public abstract class CalioJsonDataLoader extends SinglePreparationResourceReloa
 
     }
 
-    protected Identifier trim(Identifier fileId) {
+    protected ResourceLocation trim(ResourceLocation fileId) {
         String path = FilenameUtils.removeExtension(fileId.getPath()).substring(directoryName.length() + 1);
-        return new Identifier(fileId.getNamespace(), path);
+        return ResourceLocation.fromNamespaceAndPath(fileId.getNamespace(), path);
     }
 
-    protected boolean hasValidExtension(Identifier fileId) {
+    protected boolean hasValidExtension(ResourceLocation fileId) {
         return VALID_EXTENSIONS.keySet()
             .stream()
             .anyMatch(suffix -> fileId.getPath().endsWith(suffix));

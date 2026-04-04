@@ -3,7 +3,7 @@ package io.github.apace100.calio.resource;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.resource.IdentifiableResourceReloadListener;
 import net.fabricmc.loader.api.FabricLoader;
-import net.minecraft.util.Identifier;
+import net.minecraft.resources.ResourceLocation;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -36,10 +36,10 @@ public class OrderedResourceListener implements ModInitializer {
     public static class Registration {
 
         private final OrderedResourceListenerManager.Instance manager;
-        final Identifier id;
+        final ResourceLocation id;
         final IdentifiableResourceReloadListener resourceReloadListener;
-        final Set<Identifier> dependencies = new HashSet<>();
-        final Set<Identifier> dependants = new HashSet<>();
+        final Set<ResourceLocation> dependencies = new HashSet<>();
+        final Set<ResourceLocation> dependants = new HashSet<>();
         private boolean isCompleted;
 
         Registration(OrderedResourceListenerManager.Instance manager, IdentifiableResourceReloadListener listener) {
@@ -49,10 +49,10 @@ public class OrderedResourceListener implements ModInitializer {
         }
 
         public Registration after(String identifier) {
-            return after(new Identifier(identifier));
+            return after(ResourceLocation.parse(identifier));
         }
 
-        public Registration after(Identifier identifier) {
+        public Registration after(ResourceLocation identifier) {
             if(isCompleted) {
                 throw new IllegalStateException(
                     "Can't add a resource reload listener registration dependency after it was completed.");
@@ -62,10 +62,10 @@ public class OrderedResourceListener implements ModInitializer {
         }
 
         public Registration before(String identifier) {
-            return before(new Identifier(identifier));
+            return before(ResourceLocation.parse(identifier));
         }
 
-        public Registration before(Identifier identifier) {
+        public Registration before(ResourceLocation identifier) {
             if(isCompleted) {
                 throw new IllegalStateException(
                     "Can't add a resource reload listener registration dependant after it was completed.");
@@ -84,7 +84,7 @@ public class OrderedResourceListener implements ModInitializer {
             StringBuilder builder = new StringBuilder(id.toString());
             builder.append("{depends_on=[");
             boolean first = true;
-            for (Identifier afterId : dependencies) {
+            for (ResourceLocation afterId : dependencies) {
                 builder.append(afterId);
                 if(!first) {
                     builder.append(',');

@@ -7,12 +7,12 @@ import com.google.gson.JsonSyntaxException;
 import com.mojang.datafixers.util.Either;
 import io.github.apace100.calio.Calio;
 import io.github.apace100.calio.data.DataException;
-import net.minecraft.network.PacketByteBuf;
-import net.minecraft.registry.Registry;
-import net.minecraft.registry.RegistryKey;
-import net.minecraft.registry.entry.RegistryEntry;
-import net.minecraft.registry.tag.TagKey;
-import net.minecraft.util.Identifier;
+import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.core.Registry;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.core.Holder;
+import net.minecraft.tags.TagKey;
+import net.minecraft.resources.ResourceLocation;
 
 import java.util.*;
 
@@ -29,11 +29,11 @@ public class TagLike<T> {
         this.registry = registry;
     }
 
-    public void addTag(Identifier id) {
-        addTag(TagKey.of(registry.getKey(), id));
+    public void addTag(ResourceLocation id) {
+        addTag(TagKey.create(registry.key(), id));
     }
 
-    public void add(Identifier id) {
+    public void add(ResourceLocation id) {
         add(registry.get(id));
     }
 
@@ -56,10 +56,10 @@ public class TagLike<T> {
             return true;
         }
 
-        RegistryEntry<T> entry = registry.getEntry(t);
+        Holder<T> entry = registry.wrapAsHolder(t);
         return tags
             .stream()
-            .anyMatch(entry::isIn);
+            .anyMatch(entry::is);
 
     }
 
@@ -68,17 +68,17 @@ public class TagLike<T> {
         this.items.clear();
     }
 
-    public void write(PacketByteBuf buf) {
+    public void write(FriendlyByteBuf buf) {
 
         buf.writeVarInt(tags.size());
         for (TagKey<T> tagKey : tags) {
-            buf.writeIdentifier(tagKey.id());
+            buf.writeResourceLocation(tagKey.location());
         }
 
-        List<Identifier> ids = new LinkedList<>();
+        List<ResourceLocation> ids = new LinkedList<>();
         for (T t : items) {
 
-            Identifier id = registry.getId(t);
+            ResourceLocation id = registry.getKey(t);
 
             if (id != null) {
                 ids.add(id);
@@ -87,23 +87,23 @@ public class TagLike<T> {
         }
 
         buf.writeVarInt(ids.size());
-        ids.forEach(buf::writeIdentifier);
+        ids.forEach(buf::writeResourceLocation);
 
     }
 
-    public void read(PacketByteBuf buf) {
+    public void read(FriendlyByteBuf buf) {
 
         this.clear();
 
         int count = buf.readVarInt();
         for (int i = 0; i < count; i++) {
-            tags.add(TagKey.of(registry.getKey(), buf.readIdentifier()));
+            tags.add(TagKey.create(registry.key(), buf.readResourceLocation()));
         }
 
         count = buf.readVarInt();
         for (int i = 0; i < count; i++) {
 
-            T t = registry.get(buf.readIdentifier());
+            T t = registry.get(buf.readResourceLocation());
 
             if (t != null) {
                 items.add(t);
@@ -113,25 +113,25 @@ public class TagLike<T> {
 
     }
 
-    private static <T> Either<TagKey<T>, Identifier> parse(Registry<T> registry, JsonElement jsonElement) {
+    private static <T> Either<TagKey<T>, ResourceLocation> parse(Registry<T> registry, JsonElement jsonElement) {
 
         if (!(jsonElement instanceof JsonPrimitive jsonPrimitive) || !jsonPrimitive.isString()) {
             throw new JsonSyntaxException("Expected a string.");
         }
 
-        Map<TagKey<?>, Collection<RegistryEntry<?>>> registryTags = Calio.REGISTRY_TAGS.get();
-        RegistryKey<? extends Registry<T>> registryKey = registry.getKey();
+        Map<TagKey<?>, Collection<Holder<?>>> registryTags = Calio.REGISTRY_TAGS.get();
+        ResourceKey<? extends Registry<T>> registryKey = registry.key();
 
         String entry = jsonElement.getAsString();
-        Identifier entryId;
+        ResourceLocation entryId;
 
         if (entry.startsWith("#")) {
 
-            entryId = DynamicIdentifier.of(entry.substring(1));
-            TagKey<T> entryTag = TagKey.of(registryKey, entryId);
+            entryId = DynamicResourceLocation.of(entry.substring(1));
+            TagKey<T> entryTag = TagKey.create(registryKey, entryId);
 
             if (registryTags != null && !registryTags.containsKey(entryTag)) {
-                throw new IllegalArgumentException("Tag \"" + entryId + "\" for registry \"" + registryKey.getValue() + "\" doesn't exist.");
+                throw new IllegalArgumentException("Tag \"" + entryId + "\" for registry \"" + registryKey.location() + "\" doesn't exist.");
             }
 
             return Either.left(entryTag);
@@ -140,9 +140,9 @@ public class TagLike<T> {
 
         else {
 
-            entryId = DynamicIdentifier.of(entry);
-            if (!registry.containsId(entryId)) {
-                throw new IllegalArgumentException("Type \"" + entryId + "\" is not registered in registry \"" + registryKey.getValue() + "\".");
+            entryId = DynamicResourceLocation.of(entry);
+            if (!registry.containsKey(entryId)) {
+                throw new IllegalArgumentException("Type \"" + entryId + "\" is not registered in registry \"" + registryKey.location() + "\".");
             }
 
             return Either.right(entryId);
@@ -195,12 +195,12 @@ public class TagLike<T> {
         JsonArray jsonArray = new JsonArray();
 
         for (TagKey<T> tagKey : this.tags) {
-            jsonArray.add("#" + tagKey.id().toString());
+            jsonArray.add("#" + tagKey.location().toString());
         }
 
         for (T t : this.items) {
 
-            Identifier id = this.registry.getId(t);
+            ResourceLocation id = this.registry.getKey(t);
 
             if (id != null) {
                 jsonArray.add(id.toString());
@@ -216,12 +216,12 @@ public class TagLike<T> {
     public void write(JsonArray array) {
 
         for (TagKey<T> tagKey : tags) {
-            array.add("#" + tagKey.id().toString());
+            array.add("#" + tagKey.location().toString());
         }
 
         for(T t : items) {
 
-            Identifier id = registry.getId(t);
+            ResourceLocation id = registry.getKey(t);
 
             if (id != null) {
                 array.add(id.toString());

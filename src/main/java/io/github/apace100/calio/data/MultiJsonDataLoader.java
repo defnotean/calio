@@ -3,11 +3,11 @@ package io.github.apace100.calio.data;
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonSyntaxException;
-import net.minecraft.resource.ResourceManager;
-import net.minecraft.resource.SinglePreparationResourceReloader;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.Util;
-import net.minecraft.util.profiler.Profiler;
+import net.minecraft.server.packs.resources.ResourceManager;
+import net.minecraft.server.packs.resources.SimplePreparableReloadListener;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.Util;
+import net.minecraft.util.profiling.ProfilerFiller;
 import org.apache.commons.io.FilenameUtils;
 import org.quiltmc.parsers.json.JsonFormat;
 import org.quiltmc.parsers.json.JsonReader;
@@ -19,15 +19,15 @@ import java.io.BufferedReader;
 import java.util.*;
 
 /**
- *  <p>Like {@link net.minecraft.resource.JsonDataLoader}, except it provides a list of {@link JsonElement JsonElements} associated
- *  with an {@link Identifier}, where each element is loaded by different resource packs. This allows for overriding and merging several
+ *  <p>Like {@link net.minecraft.server.packs.resources.SimpleJsonResourceReloadListener}, except it provides a list of {@link JsonElement JsonElements} associated
+ *  with an {@link ResourceLocation}, where each element is loaded by different resource packs. This allows for overriding and merging several
  *  data files into one, similar to how tags work. There is no guarantee on the order of the resulting list, so make sure to implement
  *  some kind of "priority" system.</p>
  *
  *  <p>This is now <b>deprecated</b> in favor of using {@link IdentifiableMultiJsonDataLoader}</p>
  */
 @Deprecated
-public abstract class MultiJsonDataLoader extends SinglePreparationResourceReloader<Map<Identifier, List<JsonElement>>> {
+public abstract class MultiJsonDataLoader extends SimplePreparableReloadListener<Map<ResourceLocation, List<JsonElement>>> {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(MultiJsonDataLoader.class);
     private static final Map<String, JsonFormat> VALID_EXTENSIONS = Util.make(new HashMap<>(), map -> {
@@ -45,19 +45,19 @@ public abstract class MultiJsonDataLoader extends SinglePreparationResourceReloa
     }
 
     @Override
-    protected Map<Identifier, List<JsonElement>> prepare(ResourceManager manager, Profiler profiler) {
+    protected Map<ResourceLocation, List<JsonElement>> prepare(ResourceManager manager, ProfilerFiller profiler) {
 
-        Map<Identifier, List<JsonElement>> result = new HashMap<>();
-        manager.findResources(directoryName, this::hasValidExtension).keySet().forEach(fileId -> {
+        Map<ResourceLocation, List<JsonElement>> result = new HashMap<>();
+        manager.listResources(directoryName, this::hasValidExtension).keySet().forEach(fileId -> {
 
-            Identifier id = trim(fileId);
+            ResourceLocation id = trim(fileId);
             String fileExtension = "." + FilenameUtils.getExtension(fileId.getPath());
 
             JsonFormat jsonFormat = VALID_EXTENSIONS.get(fileExtension);
-            manager.getAllResources(fileId).forEach(resource -> {
+            manager.getResourceStack(fileId).forEach(resource -> {
 
-                String packName = resource.getResourcePackName();
-                try (BufferedReader resourceReader = resource.getReader()) {
+                String packName = resource.sourcePackId();
+                try (BufferedReader resourceReader = resource.openAsReader()) {
 
                     if (jsonFormat == null) {
                         throw new JsonSyntaxException("The file extension \"" + fileExtension + "\" is not supported");
@@ -82,12 +82,12 @@ public abstract class MultiJsonDataLoader extends SinglePreparationResourceReloa
 
     }
 
-    private Identifier trim(Identifier id) {
+    private ResourceLocation trim(ResourceLocation id) {
         String path = FilenameUtils.removeExtension(id.getPath()).substring(directoryName.length() + 1);
-        return new Identifier(id.getNamespace(), path);
+        return ResourceLocation.fromNamespaceAndPath(id.getNamespace(), path);
     }
 
-    private boolean hasValidExtension(Identifier id) {
+    private boolean hasValidExtension(ResourceLocation id) {
         return VALID_EXTENSIONS.keySet()
             .stream()
             .anyMatch(suffix -> id.getPath().endsWith(suffix));

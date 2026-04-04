@@ -2,10 +2,12 @@ package io.github.apace100.calio.mixin;
 
 import io.github.apace100.calio.Calio;
 import io.github.apace100.calio.NbtConstants;
-import net.minecraft.client.gui.hud.InGameHud;
-import net.minecraft.item.ItemStack;
-import net.minecraft.nbt.NbtCompound;
-import net.minecraft.screen.AnvilScreenHandler;
+import net.minecraft.client.gui.Gui;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.component.CustomData;
+import net.minecraft.world.inventory.AnvilMenu;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -20,27 +22,34 @@ public abstract class CustomNonItalicNameMixin {
 
     @Mixin(ItemStack.class)
     public abstract static class ModifyItalicDisplayItem {
-        @Redirect(method = "getTooltip", at = @At(value = "INVOKE", target = "Lnet/minecraft/item/ItemStack;hasCustomName()Z"))
+        @Redirect(method = "getTooltipLines", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/item/ItemStack;hasCustomHoverName()Z"))
         private boolean hasCustomNameWhichIsItalic(ItemStack stack) {
-            return stack.hasCustomName() && !Calio.hasNonItalicName(stack);
+            return stack.hasCustomHoverName() && !Calio.hasNonItalicName(stack);
         }
     }
 
-    @Mixin(InGameHud.class)
+    @Mixin(Gui.class)
     public abstract static class ModifyItalicDisplayHud {
-        @Redirect(method = "renderHeldItemTooltip", at = @At(value = "INVOKE", target = "Lnet/minecraft/item/ItemStack;hasCustomName()Z"))
+        @Redirect(method = "renderSelectedItemName", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/item/ItemStack;hasCustomHoverName()Z"))
         private boolean hasCustomNameWhichIsItalic(ItemStack stack) {
-            return stack.hasCustomName() && !Calio.hasNonItalicName(stack);
+            return stack.hasCustomHoverName() && !Calio.hasNonItalicName(stack);
         }
     }
 
-    @Mixin(AnvilScreenHandler.class)
+    @Mixin(AnvilMenu.class)
     public abstract static class RemoveNonItalicOnRename {
-        @Inject(method = "updateResult", at = @At(value = "INVOKE", target = "Lnet/minecraft/item/ItemStack;setCustomName(Lnet/minecraft/text/Text;)Lnet/minecraft/item/ItemStack;"), locals = LocalCapture.CAPTURE_FAILHARD)
+        @Inject(method = "createResult", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/item/ItemStack;setHoverName(Lnet/minecraft/network/chat/Component;)Lnet/minecraft/world/item/ItemStack;"), locals = LocalCapture.CAPTURE_FAILHARD)
         private void removeNonItalicFlag(CallbackInfo ci, ItemStack itemStack, int i, int j, int k, ItemStack itemStack2) {
-            NbtCompound display = itemStack2.getSubNbt("display");
-            if(display != null && display.contains(NbtConstants.NON_ITALIC_NAME)) {
-                display.remove(NbtConstants.NON_ITALIC_NAME);
+            if(itemStack2.has(DataComponents.CUSTOM_DATA)) {
+                CompoundTag tag = itemStack2.getOrDefault(DataComponents.CUSTOM_DATA, CustomData.EMPTY).copyTag();
+                if(tag.contains("display")) {
+                    CompoundTag display = tag.getCompound("display");
+                    if(display.contains(NbtConstants.NON_ITALIC_NAME)) {
+                        display.remove(NbtConstants.NON_ITALIC_NAME);
+                        tag.put("display", display);
+                        itemStack2.set(DataComponents.CUSTOM_DATA, CustomData.of(tag));
+                    }
+                }
             }
         }
     }

@@ -7,16 +7,17 @@ import com.mojang.serialization.Codec;
 import com.mojang.serialization.DataResult;
 import io.github.apace100.calio.access.ExtraShapedRecipeData;
 import io.github.apace100.calio.mixin.ShapedRecipeAccessor;
-import net.minecraft.entity.attribute.EntityAttributeModifier;
-import net.minecraft.entity.effect.StatusEffect;
-import net.minecraft.entity.effect.StatusEffectInstance;
-import net.minecraft.network.PacketByteBuf;
-import net.minecraft.recipe.Ingredient;
-import net.minecraft.recipe.ShapedRecipe;
-import net.minecraft.registry.Registries;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.JsonHelper;
-import net.minecraft.util.collection.DefaultedList;
+import net.minecraft.core.Holder;
+import net.minecraft.world.entity.ai.attributes.AttributeModifier;
+import net.minecraft.world.effect.MobEffect;
+import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.world.item.crafting.Ingredient;
+import net.minecraft.world.item.crafting.ShapedRecipe;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.util.GsonHelper;
+import net.minecraft.core.NonNullList;
 
 import java.util.*;
 import java.util.function.Function;
@@ -31,7 +32,7 @@ public class SerializationHelper {
             int width = unpaddedPattern[0].length();
             int height = unpaddedPattern.length;
 
-            DefaultedList<Ingredient> ingredients = DefaultedList.ofSize(width * height, Ingredient.EMPTY);
+            NonNullList<Ingredient> ingredients = NonNullList.withSize(width * height, Ingredient.EMPTY);
             Set<String> patternKeys = new HashSet<>(rawShapedRecipe.key().keySet());
 
             for (int sliceIndex = 0; sliceIndex < unpaddedPattern.length; ++sliceIndex) {
@@ -88,7 +89,7 @@ public class SerializationHelper {
 
             ShapedRecipe.Serializer.RawShapedRecipe rawShapedRecipe = new ShapedRecipe.Serializer.RawShapedRecipe(
                 shapedRecipe.getGroup(),
-                shapedRecipe.getCategory(),
+                shapedRecipe.category(),
                 extraShapedRecipeData.calio$getKeyMapping(),
                 extraShapedRecipeData.calio$getPattern(),
                 extraShapedRecipeData.calio$getResult(),
@@ -102,80 +103,82 @@ public class SerializationHelper {
 
     // Use SerializableDataTypes.ATTRIBUTE_MODIFIER instead
     @Deprecated
-    public static EntityAttributeModifier readAttributeModifier(JsonElement jsonElement) {
+    public static AttributeModifier readAttributeModifier(JsonElement jsonElement) {
         if(jsonElement.isJsonObject()) {
             JsonObject json = jsonElement.getAsJsonObject();
-            String name = JsonHelper.getString(json, "name", "Unnamed attribute modifier");
-            String operation = JsonHelper.getString(json, "operation").toUpperCase(Locale.ROOT);
-            double value = JsonHelper.getFloat(json, "value");
-            return new EntityAttributeModifier(name, value, EntityAttributeModifier.Operation.valueOf(operation));
+            String id = GsonHelper.getAsString(json, "id", "calio:unnamed_attribute_modifier");
+            String operation = GsonHelper.getAsString(json, "operation").toUpperCase(Locale.ROOT);
+            double value = GsonHelper.getAsFloat(json, "value");
+            return new AttributeModifier(ResourceLocation.parse(id), value, AttributeModifier.Operation.valueOf(operation));
         }
         throw new JsonSyntaxException("Attribute modifier needs to be a JSON object.");
     }
 
     // Use SerializableDataTypes.ATTRIBUTE_MODIFIER instead
     @Deprecated
-    public static EntityAttributeModifier readAttributeModifier(PacketByteBuf buf) {
-        String modName = buf.readString(32767);
+    public static AttributeModifier readAttributeModifier(FriendlyByteBuf buf) {
+        String modId = buf.readUtf(32767);
         double modValue = buf.readDouble();
         int operation = buf.readInt();
-        return new EntityAttributeModifier(modName, modValue, EntityAttributeModifier.Operation.fromId(operation));
+        return new AttributeModifier(ResourceLocation.parse(modId), modValue, AttributeModifier.Operation.fromValue(operation));
     }
 
     // Use SerializableDataTypes.ATTRIBUTE_MODIFIER instead
     @Deprecated
-    public static void writeAttributeModifier(PacketByteBuf buf, EntityAttributeModifier modifier) {
-        buf.writeString(modifier.getName());
-        buf.writeDouble(modifier.getValue());
-        buf.writeInt(modifier.getOperation().getId());
+    public static void writeAttributeModifier(FriendlyByteBuf buf, AttributeModifier modifier) {
+        buf.writeUtf(modifier.id().toString());
+        buf.writeDouble(modifier.amount());
+        buf.writeInt(modifier.operation().toValue());
     }
 
-    public static StatusEffectInstance readStatusEffect(JsonElement jsonElement) {
+    public static MobEffectInstance readStatusEffect(JsonElement jsonElement) {
         if(jsonElement.isJsonObject()) {
             JsonObject json = jsonElement.getAsJsonObject();
-            String effect = JsonHelper.getString(json, "effect");
-            Optional<StatusEffect> effectOptional = Registries.STATUS_EFFECT.getOrEmpty(Identifier.tryParse(effect));
-            if(!effectOptional.isPresent()) {
+            String effect = GsonHelper.getAsString(json, "effect");
+            ResourceLocation effectId = ResourceLocation.tryParse(effect);
+            Optional<Holder.Reference<MobEffect>> holderOptional = BuiltInRegistries.MOB_EFFECT.getHolder(effectId);
+            if(!holderOptional.isPresent()) {
                 throw new JsonSyntaxException("Error reading status effect: could not find status effect with id: " + effect);
             }
-            int duration = JsonHelper.getInt(json, "duration", 100);
-            int amplifier = JsonHelper.getInt(json, "amplifier", 0);
-            boolean ambient = JsonHelper.getBoolean(json, "is_ambient", false);
-            boolean showParticles = JsonHelper.getBoolean(json, "show_particles", true);
-            boolean showIcon = JsonHelper.getBoolean(json, "show_icon", true);
-            return new StatusEffectInstance(effectOptional.get(), duration, amplifier, ambient, showParticles, showIcon);
+            int duration = GsonHelper.getAsInt(json, "duration", 100);
+            int amplifier = GsonHelper.getAsInt(json, "amplifier", 0);
+            boolean ambient = GsonHelper.getAsBoolean(json, "is_ambient", false);
+            boolean showParticles = GsonHelper.getAsBoolean(json, "show_particles", true);
+            boolean showIcon = GsonHelper.getAsBoolean(json, "show_icon", true);
+            return new MobEffectInstance(holderOptional.get(), duration, amplifier, ambient, showParticles, showIcon);
         } else {
             throw new JsonSyntaxException("Expected status effect to be a json object.");
         }
     }
 
-    public static StatusEffectInstance readStatusEffect(PacketByteBuf buf) {
-        Identifier effect = buf.readIdentifier();
+    public static MobEffectInstance readStatusEffect(FriendlyByteBuf buf) {
+        ResourceLocation effect = buf.readResourceLocation();
         int duration = buf.readInt();
         int amplifier = buf.readInt();
         boolean ambient = buf.readBoolean();
         boolean showParticles = buf.readBoolean();
         boolean showIcon = buf.readBoolean();
-        return new StatusEffectInstance(Registries.STATUS_EFFECT.get(effect), duration, amplifier, ambient, showParticles, showIcon);
+        Holder<MobEffect> holder = BuiltInRegistries.MOB_EFFECT.wrapAsHolder(BuiltInRegistries.MOB_EFFECT.get(effect));
+        return new MobEffectInstance(holder, duration, amplifier, ambient, showParticles, showIcon);
     }
 
-    public static void writeStatusEffect(PacketByteBuf buf, StatusEffectInstance statusEffectInstance) {
-        buf.writeIdentifier(Registries.STATUS_EFFECT.getId(statusEffectInstance.getEffectType()));
-        buf.writeInt(statusEffectInstance.getDuration());
-        buf.writeInt(statusEffectInstance.getAmplifier());
-        buf.writeBoolean(statusEffectInstance.isAmbient());
-        buf.writeBoolean(statusEffectInstance.shouldShowParticles());
-        buf.writeBoolean(statusEffectInstance.shouldShowIcon());
+    public static void writeStatusEffect(FriendlyByteBuf buf, MobEffectInstance mobEffectInstance) {
+        buf.writeResourceLocation(BuiltInRegistries.MOB_EFFECT.getKey(mobEffectInstance.getEffect().value()));
+        buf.writeInt(mobEffectInstance.getDuration());
+        buf.writeInt(mobEffectInstance.getAmplifier());
+        buf.writeBoolean(mobEffectInstance.isAmbient());
+        buf.writeBoolean(mobEffectInstance.isVisible());
+        buf.writeBoolean(mobEffectInstance.showIcon());
     }
 
-    public static JsonElement writeStatusEffect(StatusEffectInstance statusEffectInstance) {
+    public static JsonElement writeStatusEffect(MobEffectInstance mobEffectInstance) {
         JsonObject jo = new JsonObject();
-        jo.addProperty("effect", Registries.STATUS_EFFECT.getId(statusEffectInstance.getEffectType()).toString());
-        jo.addProperty("duration", statusEffectInstance.getDuration());
-        jo.addProperty("amplifier", statusEffectInstance.getAmplifier());
-        jo.addProperty("is_ambient", statusEffectInstance.isAmbient());
-        jo.addProperty("show_particles", statusEffectInstance.shouldShowParticles());
-        jo.addProperty("show_icon", statusEffectInstance.shouldShowIcon());
+        jo.addProperty("effect", BuiltInRegistries.MOB_EFFECT.getKey(mobEffectInstance.getEffect().value()).toString());
+        jo.addProperty("duration", mobEffectInstance.getDuration());
+        jo.addProperty("amplifier", mobEffectInstance.getAmplifier());
+        jo.addProperty("is_ambient", mobEffectInstance.isAmbient());
+        jo.addProperty("show_particles", mobEffectInstance.isVisible());
+        jo.addProperty("show_icon", mobEffectInstance.showIcon());
         return jo;
     }
 

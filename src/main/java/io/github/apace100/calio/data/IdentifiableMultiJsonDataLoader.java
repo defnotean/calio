@@ -3,12 +3,12 @@ package io.github.apace100.calio.data;
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonParseException;
-import net.minecraft.resource.ResourceManager;
-import net.minecraft.resource.ResourceType;
-import net.minecraft.resource.SinglePreparationResourceReloader;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.Util;
-import net.minecraft.util.profiler.Profiler;
+import net.minecraft.server.packs.resources.ResourceManager;
+import net.minecraft.server.packs.PackType;
+import net.minecraft.server.packs.resources.SimplePreparableReloadListener;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.Util;
+import net.minecraft.util.profiling.ProfilerFiller;
 import org.apache.commons.io.FilenameUtils;
 import org.quiltmc.parsers.json.JsonFormat;
 import org.quiltmc.parsers.json.JsonReader;
@@ -21,10 +21,10 @@ import java.util.*;
 
 /**
  *  Similar to {@link MultiJsonDataLoader}, except it provides a list of {@link MultiJsonDataContainer} that contains a map
- *  of {@link Identifier} and a {@link List} of {@link JsonElement JsonElements} with a {@link String} that identifies the
+ *  of {@link ResourceLocation} and a {@link List} of {@link JsonElement JsonElements} with a {@link String} that identifies the
  *  data/resource pack the JSON data is from.
  */
-public abstract class IdentifiableMultiJsonDataLoader extends SinglePreparationResourceReloader<MultiJsonDataContainer> {
+public abstract class IdentifiableMultiJsonDataLoader extends SimplePreparableReloadListener<MultiJsonDataContainer> {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(IdentifiableMultiJsonDataLoader.class);
     private static final Map<String, JsonFormat> VALID_EXTENSIONS = Util.make(new HashMap<>(), map -> {
@@ -33,30 +33,30 @@ public abstract class IdentifiableMultiJsonDataLoader extends SinglePreparationR
         map.put(".jsonc", JsonFormat.JSONC);
     });
 
-    private final ResourceType resourceType;
+    private final PackType resourceType;
     private final String directoryName;
     private final Gson gson;
 
-    public IdentifiableMultiJsonDataLoader(Gson gson, String directoryName, ResourceType resourceType) {
+    public IdentifiableMultiJsonDataLoader(Gson gson, String directoryName, PackType resourceType) {
         this.gson = gson;
         this.directoryName = directoryName;
         this.resourceType = resourceType;
     }
 
     @Override
-    protected MultiJsonDataContainer prepare(ResourceManager manager, Profiler profiler) {
+    protected MultiJsonDataContainer prepare(ResourceManager manager, ProfilerFiller profiler) {
 
         MultiJsonDataContainer result = new MultiJsonDataContainer();
-        manager.findResources(directoryName, this::hasValidExtension).keySet().forEach(fileId -> {
+        manager.listResources(directoryName, this::hasValidExtension).keySet().forEach(fileId -> {
 
-            Identifier id = this.trim(fileId);
+            ResourceLocation id = this.trim(fileId);
             String fileExtension = "." + FilenameUtils.getExtension(fileId.getPath());
 
             JsonFormat jsonFormat = VALID_EXTENSIONS.get(fileExtension);
-            manager.getAllResources(fileId).forEach(resource -> {
+            manager.getResourceStack(fileId).forEach(resource -> {
 
-                String packName = resource.getResourcePackName();
-                try (BufferedReader resourceReader = resource.getReader()) {
+                String packName = resource.sourcePackId();
+                try (BufferedReader resourceReader = resource.openAsReader()) {
 
                     GsonReader gsonReader = new GsonReader(JsonReader.create(resourceReader, jsonFormat));
                     JsonElement jsonElement = gson.fromJson(gsonReader, JsonElement.class);
@@ -83,12 +83,12 @@ public abstract class IdentifiableMultiJsonDataLoader extends SinglePreparationR
 
     }
 
-    protected Identifier trim(Identifier fileId) {
+    protected ResourceLocation trim(ResourceLocation fileId) {
         String path = FilenameUtils.removeExtension(fileId.getPath()).substring(directoryName.length() + 1);
-        return new Identifier(fileId.getNamespace(), path);
+        return ResourceLocation.fromNamespaceAndPath(fileId.getNamespace(), path);
     }
 
-    protected boolean hasValidExtension(Identifier fileId) {
+    protected boolean hasValidExtension(ResourceLocation fileId) {
         return VALID_EXTENSIONS.keySet()
             .stream()
             .anyMatch(suffix -> fileId.getPath().endsWith(suffix));

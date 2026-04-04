@@ -1,58 +1,46 @@
 package io.github.apace100.calio;
 
-import com.google.gson.JsonObject;
-import com.google.gson.JsonPrimitive;
-import net.minecraft.advancement.criterion.AbstractCriterion;
-import net.minecraft.advancement.criterion.AbstractCriterionConditions;
-import net.minecraft.predicate.entity.AdvancementEntityPredicateDeserializer;
-import net.minecraft.predicate.entity.LootContextPredicate;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.util.Identifier;
+import com.mojang.serialization.Codec;
+import com.mojang.serialization.codecs.RecordCodecBuilder;
+import net.minecraft.advancements.critereon.SimpleCriterionTrigger;
+import net.minecraft.advancements.critereon.SimpleCriterionTrigger.SimpleInstance;
+import net.minecraft.advancements.critereon.ContextAwarePredicate;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.resources.ResourceLocation;
 
 import java.util.Optional;
 
-public class CodeTriggerCriterion extends AbstractCriterion<CodeTriggerCriterion.Conditions> {
+// TODO: Verify against MC 26.1 source - SimpleCriterionTrigger API may have additional changes
+public class CodeTriggerCriterion extends SimpleCriterionTrigger<CodeTriggerCriterion.Conditions> {
 
     public static final CodeTriggerCriterion INSTANCE = new CodeTriggerCriterion();
 
-    public static final Identifier ID = new Identifier("apacelib", "code_trigger");
+    public static final ResourceLocation ID = ResourceLocation.parse("apacelib:code_trigger");
 
-    public Identifier getId() {
-        return ID;
+    @Override
+    public Codec<Conditions> codec() {
+        return Conditions.CODEC;
     }
 
-    public Conditions conditionsFromJson(JsonObject jsonObject, Optional<LootContextPredicate> extended, AdvancementEntityPredicateDeserializer advancementEntityPredicateDeserializer) {
-        String triggerId = "empty";
-        if(jsonObject.has("trigger_id")) {
-            triggerId = jsonObject.get("trigger_id").getAsString();
-        }
-        return new CodeTriggerCriterion.Conditions(extended, triggerId);
-    }
-
-    public void trigger(ServerPlayerEntity player, String triggeredId) {
+    public void trigger(ServerPlayer player, String triggeredId) {
         this.trigger(player, (conditions) -> conditions.matches(triggeredId));
     }
 
-    public static class Conditions extends AbstractCriterionConditions {
-        private final String triggerId;
+    public static record Conditions(Optional<ContextAwarePredicate> player, String triggerId) implements SimpleInstance {
 
-        public Conditions(Optional<LootContextPredicate> playerPredicate, String triggerId) {
-            super(playerPredicate);
-            this.triggerId = triggerId;
-        }
+        public static final Codec<Conditions> CODEC = RecordCodecBuilder.create(instance ->
+            instance.group(
+                ContextAwarePredicate.CODEC.optionalFieldOf("player").forGetter(Conditions::player),
+                Codec.STRING.optionalFieldOf("trigger_id", "empty").forGetter(Conditions::triggerId)
+            ).apply(instance, Conditions::new)
+        );
 
-        public static CodeTriggerCriterion.Conditions trigger(String triggerId) {
-            return new CodeTriggerCriterion.Conditions(Optional.empty(), triggerId);
+        public static Conditions trigger(String triggerId) {
+            return new Conditions(Optional.empty(), triggerId);
         }
 
         public boolean matches(String triggered) {
             return this.triggerId.equals(triggered);
-        }
-
-        public JsonObject toJson() {
-            JsonObject jsonObject = super.toJson();
-            jsonObject.add("trigger_id", new JsonPrimitive(triggerId));
-            return jsonObject;
         }
     }
 }
