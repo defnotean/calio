@@ -6,7 +6,7 @@ import com.google.gson.JsonParseException;
 import net.minecraft.server.packs.resources.ResourceManager;
 import net.minecraft.server.packs.PackType;
 import net.minecraft.server.packs.resources.SimplePreparableReloadListener;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.Util;
 import net.minecraft.util.profiling.ProfilerFiller;
 import org.apache.commons.io.FilenameUtils;
@@ -21,7 +21,7 @@ import java.util.*;
 
 /**
  *  Similar to {@link MultiJsonDataLoader}, except it provides a list of {@link MultiJsonDataContainer} that contains a map
- *  of {@link ResourceLocation} and a {@link List} of {@link JsonElement JsonElements} with a {@link String} that identifies the
+ *  of {@link Identifier} and a {@link List} of {@link JsonElement JsonElements} with a {@link String} that identifies the
  *  data/resource pack the JSON data is from.
  */
 public abstract class IdentifiableMultiJsonDataLoader extends SimplePreparableReloadListener<MultiJsonDataContainer> {
@@ -49,7 +49,7 @@ public abstract class IdentifiableMultiJsonDataLoader extends SimplePreparableRe
         MultiJsonDataContainer result = new MultiJsonDataContainer();
         manager.listResources(directoryName, this::hasValidExtension).keySet().forEach(fileId -> {
 
-            ResourceLocation id = this.trim(fileId);
+            Identifier id = this.trim(fileId);
             String fileExtension = "." + FilenameUtils.getExtension(fileId.getPath());
 
             JsonFormat jsonFormat = VALID_EXTENSIONS.get(fileExtension);
@@ -83,12 +83,12 @@ public abstract class IdentifiableMultiJsonDataLoader extends SimplePreparableRe
 
     }
 
-    protected ResourceLocation trim(ResourceLocation fileId) {
+    protected Identifier trim(Identifier fileId) {
         String path = FilenameUtils.removeExtension(fileId.getPath()).substring(directoryName.length() + 1);
-        return ResourceLocation.fromNamespaceAndPath(fileId.getNamespace(), path);
+        return Identifier.fromNamespaceAndPath(fileId.getNamespace(), path);
     }
 
-    protected boolean hasValidExtension(ResourceLocation fileId) {
+    protected boolean hasValidExtension(Identifier fileId) {
         return VALID_EXTENSIONS.keySet()
             .stream()
             .anyMatch(suffix -> fileId.getPath().endsWith(suffix));

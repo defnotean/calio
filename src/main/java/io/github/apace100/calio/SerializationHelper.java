@@ -15,7 +15,7 @@ import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.item.crafting.ShapedRecipe;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.util.GsonHelper;
 import net.minecraft.core.NonNullList;
 
@@ -109,7 +109,7 @@ public class SerializationHelper {
             String id = GsonHelper.getAsString(json, "id", "calio:unnamed_attribute_modifier");
             String operation = GsonHelper.getAsString(json, "operation").toUpperCase(Locale.ROOT);
             double value = GsonHelper.getAsFloat(json, "value");
-            return new AttributeModifier(ResourceLocation.parse(id), value, AttributeModifier.Operation.valueOf(operation));
+            return new AttributeModifier(Identifier.parse(id), value, AttributeModifier.Operation.valueOf(operation));
         }
         throw new JsonSyntaxException("Attribute modifier needs to be a JSON object.");
     }
@@ -120,7 +120,7 @@ public class SerializationHelper {
         String modId = buf.readUtf(32767);
         double modValue = buf.readDouble();
         int operation = buf.readInt();
-        return new AttributeModifier(ResourceLocation.parse(modId), modValue, AttributeModifier.Operation.fromValue(operation));
+        return new AttributeModifier(Identifier.parse(modId), modValue, AttributeModifier.Operation.fromValue(operation));
     }
 
     // Use SerializableDataTypes.ATTRIBUTE_MODIFIER instead
@@ -135,7 +135,7 @@ public class SerializationHelper {
         if(jsonElement.isJsonObject()) {
             JsonObject json = jsonElement.getAsJsonObject();
             String effect = GsonHelper.getAsString(json, "effect");
-            ResourceLocation effectId = ResourceLocation.tryParse(effect);
+            Identifier effectId = Identifier.tryParse(effect);
             Optional<Holder.Reference<MobEffect>> holderOptional = BuiltInRegistries.MOB_EFFECT.getHolder(effectId);
             if(!holderOptional.isPresent()) {
                 throw new JsonSyntaxException("Error reading status effect: could not find status effect with id: " + effect);
@@ -152,7 +152,7 @@ public class SerializationHelper {
     }
 
     public static MobEffectInstance readStatusEffect(FriendlyByteBuf buf) {
-        ResourceLocation effect = buf.readResourceLocation();
+        Identifier effect = buf.readIdentifier();
         int duration = buf.readInt();
         int amplifier = buf.readInt();
         boolean ambient = buf.readBoolean();
@@ -163,7 +163,7 @@ public class SerializationHelper {
     }
 
     public static void writeStatusEffect(FriendlyByteBuf buf, MobEffectInstance mobEffectInstance) {
-        buf.writeResourceLocation(BuiltInRegistries.MOB_EFFECT.getKey(mobEffectInstance.getEffect().value()));
+        buf.writeIdentifier(BuiltInRegistries.MOB_EFFECT.getKey(mobEffectInstance.getEffect().value()));
         buf.writeInt(mobEffectInstance.getDuration());
         buf.writeInt(mobEffectInstance.getAmplifier());
         buf.writeBoolean(mobEffectInstance.isAmbient());

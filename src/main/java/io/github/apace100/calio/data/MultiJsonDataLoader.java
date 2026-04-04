@@ -5,7 +5,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonSyntaxException;
 import net.minecraft.server.packs.resources.ResourceManager;
 import net.minecraft.server.packs.resources.SimplePreparableReloadListener;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.Util;
 import net.minecraft.util.profiling.ProfilerFiller;
 import org.apache.commons.io.FilenameUtils;
@@ -20,14 +20,14 @@ import java.util.*;
 
 /**
  *  <p>Like {@link net.minecraft.server.packs.resources.SimpleJsonResourceReloadListener}, except it provides a list of {@link JsonElement JsonElements} associated
- *  with an {@link ResourceLocation}, where each element is loaded by different resource packs. This allows for overriding and merging several
+ *  with an {@link Identifier}, where each element is loaded by different resource packs. This allows for overriding and merging several
  *  data files into one, similar to how tags work. There is no guarantee on the order of the resulting list, so make sure to implement
  *  some kind of "priority" system.</p>
  *
  *  <p>This is now <b>deprecated</b> in favor of using {@link IdentifiableMultiJsonDataLoader}</p>
  */
 @Deprecated
-public abstract class MultiJsonDataLoader extends SimplePreparableReloadListener<Map<ResourceLocation, List<JsonElement>>> {
+public abstract class MultiJsonDataLoader extends SimplePreparableReloadListener<Map<Identifier, List<JsonElement>>> {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(MultiJsonDataLoader.class);
     private static final Map<String, JsonFormat> VALID_EXTENSIONS = Util.make(new HashMap<>(), map -> {
@@ -45,12 +45,12 @@ public abstract class MultiJsonDataLoader extends SimplePreparableReloadListener
     }
 
     @Override
-    protected Map<ResourceLocation, List<JsonElement>> prepare(ResourceManager manager, ProfilerFiller profiler) {
+    protected Map<Identifier, List<JsonElement>> prepare(ResourceManager manager, ProfilerFiller profiler) {
 
-        Map<ResourceLocation, List<JsonElement>> result = new HashMap<>();
+        Map<Identifier, List<JsonElement>> result = new HashMap<>();
         manager.listResources(directoryName, this::hasValidExtension).keySet().forEach(fileId -> {
 
-            ResourceLocation id = trim(fileId);
+            Identifier id = trim(fileId);
             String fileExtension = "." + FilenameUtils.getExtension(fileId.getPath());
 
             JsonFormat jsonFormat = VALID_EXTENSIONS.get(fileExtension);
@@ -82,12 +82,12 @@ public abstract class MultiJsonDataLoader extends SimplePreparableReloadListener
 
     }
 
-    private ResourceLocation trim(ResourceLocation id) {
+    private Identifier trim(Identifier id) {
         String path = FilenameUtils.removeExtension(id.getPath()).substring(directoryName.length() + 1);
-        return ResourceLocation.fromNamespaceAndPath(id.getNamespace(), path);
+        return Identifier.fromNamespaceAndPath(id.getNamespace(), path);
     }
 
-    private boolean hasValidExtension(ResourceLocation id) {
+    private boolean hasValidExtension(Identifier id) {
         return VALID_EXTENSIONS.keySet()
             .stream()
             .anyMatch(suffix -> id.getPath().endsWith(suffix));

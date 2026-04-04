@@ -47,7 +47,8 @@ import net.minecraft.stats.Stat;
 import net.minecraft.stats.StatType;
 import net.minecraft.tags.*;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.*;
+import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.core.Direction;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.level.ClipContext;
@@ -244,15 +245,15 @@ public final class SerializableDataTypes {
             return jo;
         });
 
-    public static final SerializableDataType<ResourceLocation> IDENTIFIER = new SerializableDataType<>(
-        ResourceLocation.class,
-        FriendlyByteBuf::writeResourceLocation,
-        FriendlyByteBuf::readResourceLocation,
-        DynamicResourceLocation::of,
+    public static final SerializableDataType<Identifier> IDENTIFIER = new SerializableDataType<>(
+        Identifier.class,
+        FriendlyByteBuf::writeIdentifier,
+        FriendlyByteBuf::readIdentifier,
+        DynamicIdentifier::of,
         identifier -> new JsonPrimitive(identifier.toString())
     );
 
-    public static final SerializableDataType<List<ResourceLocation>> IDENTIFIERS = SerializableDataType.list(IDENTIFIER);
+    public static final SerializableDataType<List<Identifier>> IDENTIFIERS = SerializableDataType.list(IDENTIFIER);
 
     // Enchantments are now data-driven and no longer in BuiltInRegistries.
     // Use a ResourceKey-based approach instead.
@@ -271,11 +272,11 @@ public final class SerializableDataTypes {
     public static final SerializableDataType<AttributeModifier.Operation> MODIFIER_OPERATION = SerializableDataType.enumValue(AttributeModifier.Operation.class);
 
     public static final SerializableDataType<AttributeModifier> ATTRIBUTE_MODIFIER = SerializableDataType.compound(AttributeModifier.class, new SerializableData()
-            .add("id", IDENTIFIER, ResourceLocation.parse("calio:unnamed_attribute_modifier"))
+            .add("id", IDENTIFIER, Identifier.parse("calio:unnamed_attribute_modifier"))
             .add("operation", MODIFIER_OPERATION)
             .add("value", DOUBLE),
         data -> new AttributeModifier(
-            data.<ResourceLocation>get("id"),
+            data.<Identifier>get("id"),
             data.getDouble("value"),
             data.get("operation")
         ),
@@ -491,14 +492,14 @@ public final class SerializableDataTypes {
     // In 1.21+, RecipeSerializer.toNetwork()/fromNetwork() were removed in favor of StreamCodec.
     public static final SerializableDataType<RecipeHolder> RECIPE = new SerializableDataType<>(RecipeHolder.class,
         (buffer, recipe) -> {
-            buffer.writeResourceLocation(BuiltInRegistries.RECIPE_SERIALIZER.getKey(recipe.value().getSerializer()));
-            buffer.writeResourceLocation(recipe.id());
+            buffer.writeIdentifier(BuiltInRegistries.RECIPE_SERIALIZER.getKey(recipe.value().getSerializer()));
+            buffer.writeIdentifier(recipe.id());
             // Use StreamCodec for network serialization
             recipe.value().getSerializer().streamCodec().encode(buffer, recipe.value());
         },
         (buffer) -> {
-            ResourceLocation recipeSerializerId = buffer.readResourceLocation();
-            ResourceLocation recipeId = buffer.readResourceLocation();
+            Identifier recipeSerializerId = buffer.readIdentifier();
+            Identifier recipeId = buffer.readIdentifier();
             RecipeSerializer<?> serializer = BuiltInRegistries.RECIPE_SERIALIZER.get(recipeSerializerId);
             return new RecipeHolder<>(recipeId, serializer.streamCodec().decode(buffer));
         },
@@ -507,8 +508,8 @@ public final class SerializableDataTypes {
                 throw new RuntimeException("Expected recipe to be a JSON object.");
             }
             JsonObject json = jsonElement.getAsJsonObject();
-            ResourceLocation recipeSerializerId = ResourceLocation.tryParse(GsonHelper.getAsString(json, "type"));
-            ResourceLocation recipeId = ResourceLocation.tryParse(GsonHelper.getAsString(json, "id"));
+            Identifier recipeSerializerId = Identifier.tryParse(GsonHelper.getAsString(json, "type"));
+            Identifier recipeId = Identifier.tryParse(GsonHelper.getAsString(json, "id"));
             RecipeSerializer<?> serializer = BuiltInRegistries.RECIPE_SERIALIZER.get(recipeSerializerId);
             return new RecipeHolder<>(recipeId, serializer.codec().parse(JsonOps.INSTANCE, json).resultOrPartial(Calio.LOGGER::error).orElseThrow(() -> new RuntimeException("Failed to read recipe json.")));
         },
@@ -619,7 +620,7 @@ public final class SerializableDataTypes {
         data -> {
             StatType statType = data.get("type");
             Registry<?> statRegistry = statType.getRegistry();
-            ResourceLocation statId = data.get("id");
+            Identifier statId = data.get("id");
             if(statRegistry.containsKey(statId)) {
                 Object statObject = statRegistry.get(statId);
                 return statType.get(statObject);
@@ -630,7 +631,7 @@ public final class SerializableDataTypes {
             SerializableData.Instance inst = data.new Instance();
             inst.set("type", stat.getType());
             Registry reg = stat.getType().getRegistry();
-            ResourceLocation statId = reg.getKey(stat.getValue());
+            Identifier statId = reg.getKey(stat.getValue());
             inst.set("id", statId);
             return inst;
         });

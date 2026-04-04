@@ -2,11 +2,11 @@ package io.github.apace100.calio;
 
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
-import net.minecraft.advancements.critereon.SimpleCriterionTrigger;
-import net.minecraft.advancements.critereon.SimpleCriterionTrigger.SimpleInstance;
-import net.minecraft.advancements.critereon.ContextAwarePredicate;
+import net.minecraft.advancements.criterion.SimpleCriterionTrigger;
+import net.minecraft.advancements.criterion.SimpleCriterionTrigger.SimpleInstance;
+import net.minecraft.advancements.criterion.ContextAwarePredicate;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 
 import java.util.Optional;
 
@@ -14,7 +14,7 @@ public class CodeTriggerCriterion extends SimpleCriterionTrigger<CodeTriggerCrit
 
     public static final CodeTriggerCriterion INSTANCE = new CodeTriggerCriterion();
 
-    public static final ResourceLocation ID = ResourceLocation.parse("apacelib:code_trigger");
+    public static final Identifier ID = Identifier.parse("apacelib:code_trigger");
 
     @Override
     public Codec<Conditions> codec() {

@@ -12,7 +12,7 @@ import net.minecraft.core.Registry;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.core.Holder;
 import net.minecraft.tags.TagKey;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 
 import java.util.*;
 
@@ -29,11 +29,11 @@ public class TagLike<T> {
         this.registry = registry;
     }
 
-    public void addTag(ResourceLocation id) {
+    public void addTag(Identifier id) {
         addTag(TagKey.create(registry.key(), id));
     }
 
-    public void add(ResourceLocation id) {
+    public void add(Identifier id) {
         add(registry.get(id));
     }
 
@@ -72,13 +72,13 @@ public class TagLike<T> {
 
         buf.writeVarInt(tags.size());
         for (TagKey<T> tagKey : tags) {
-            buf.writeResourceLocation(tagKey.location());
+            buf.writeIdentifier(tagKey.location());
         }
 
-        List<ResourceLocation> ids = new LinkedList<>();
+        List<Identifier> ids = new LinkedList<>();
         for (T t : items) {
 
-            ResourceLocation id = registry.getKey(t);
+            Identifier id = registry.getKey(t);
 
             if (id != null) {
                 ids.add(id);
@@ -87,7 +87,7 @@ public class TagLike<T> {
         }
 
         buf.writeVarInt(ids.size());
-        ids.forEach(buf::writeResourceLocation);
+        ids.forEach(buf::writeIdentifier);
 
     }
 
@@ -97,13 +97,13 @@ public class TagLike<T> {
 
         int count = buf.readVarInt();
         for (int i = 0; i < count; i++) {
-            tags.add(TagKey.create(registry.key(), buf.readResourceLocation()));
+            tags.add(TagKey.create(registry.key(), buf.readIdentifier()));
         }
 
         count = buf.readVarInt();
         for (int i = 0; i < count; i++) {
 
-            T t = registry.get(buf.readResourceLocation());
+            T t = registry.get(buf.readIdentifier());
 
             if (t != null) {
                 items.add(t);
@@ -113,7 +113,7 @@ public class TagLike<T> {
 
     }
 
-    private static <T> Either<TagKey<T>, ResourceLocation> parse(Registry<T> registry, JsonElement jsonElement) {
+    private static <T> Either<TagKey<T>, Identifier> parse(Registry<T> registry, JsonElement jsonElement) {
 
         if (!(jsonElement instanceof JsonPrimitive jsonPrimitive) || !jsonPrimitive.isString()) {
             throw new JsonSyntaxException("Expected a string.");
@@ -123,11 +123,11 @@ public class TagLike<T> {
         ResourceKey<? extends Registry<T>> registryKey = registry.key();
 
         String entry = jsonElement.getAsString();
-        ResourceLocation entryId;
+        Identifier entryId;
 
         if (entry.startsWith("#")) {
 
-            entryId = DynamicResourceLocation.of(entry.substring(1));
+            entryId = DynamicIdentifier.of(entry.substring(1));
             TagKey<T> entryTag = TagKey.create(registryKey, entryId);
 
             if (registryTags != null && !registryTags.containsKey(entryTag)) {
@@ -140,7 +140,7 @@ public class TagLike<T> {
 
         else {
 
-            entryId = DynamicResourceLocation.of(entry);
+            entryId = DynamicIdentifier.of(entry);
             if (!registry.containsKey(entryId)) {
                 throw new IllegalArgumentException("Type \"" + entryId + "\" is not registered in registry \"" + registryKey.location() + "\".");
             }
@@ -200,7 +200,7 @@ public class TagLike<T> {
 
         for (T t : this.items) {
 
-            ResourceLocation id = this.registry.getKey(t);
+            Identifier id = this.registry.getKey(t);
 
             if (id != null) {
                 jsonArray.add(id.toString());
@@ -221,7 +221,7 @@ public class TagLike<T> {
 
         for(T t : items) {
 
-            ResourceLocation id = registry.getKey(t);
+            Identifier id = registry.getKey(t);
 
             if (id != null) {
                 array.add(id.toString());

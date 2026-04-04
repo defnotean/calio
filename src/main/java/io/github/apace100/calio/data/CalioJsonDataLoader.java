@@ -5,7 +5,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonParseException;
 import net.minecraft.server.packs.resources.ResourceManager;
 import net.minecraft.server.packs.resources.SimplePreparableReloadListener;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.Util;
 import net.minecraft.util.profiling.ProfilerFiller;
 import org.apache.commons.io.FilenameUtils;
@@ -22,7 +22,7 @@ import java.util.Map;
 /**
  *  Similar to {@link net.minecraft.server.packs.resources.SimpleJsonResourceReloadListener}, except it supports the JSON5 and JSONC spec.
  */
-public abstract class CalioJsonDataLoader extends SimplePreparableReloadListener<Map<ResourceLocation, JsonElement>> {
+public abstract class CalioJsonDataLoader extends SimplePreparableReloadListener<Map<Identifier, JsonElement>> {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(CalioJsonDataLoader.class);
     private static final Map<String, JsonFormat> VALID_EXTENSIONS = Util.make(new HashMap<>(), map -> {
@@ -40,12 +40,12 @@ public abstract class CalioJsonDataLoader extends SimplePreparableReloadListener
     }
 
     @Override
-    protected Map<ResourceLocation, JsonElement> prepare(ResourceManager manager, ProfilerFiller profiler) {
+    protected Map<Identifier, JsonElement> prepare(ResourceManager manager, ProfilerFiller profiler) {
 
-        Map<ResourceLocation, JsonElement> result = new HashMap<>();
+        Map<Identifier, JsonElement> result = new HashMap<>();
         manager.listResources(directoryName, this::hasValidExtension).forEach((fileId, resource) -> {
 
-            ResourceLocation id = this.trim(fileId);
+            Identifier id = this.trim(fileId);
             String fileExtension = "." + FilenameUtils.getExtension(fileId.getPath());
 
             JsonFormat jsonFormat = VALID_EXTENSIONS.get(fileExtension);
@@ -76,12 +76,12 @@ public abstract class CalioJsonDataLoader extends SimplePreparableReloadListener
 
     }
 
-    protected ResourceLocation trim(ResourceLocation fileId) {
+    protected Identifier trim(Identifier fileId) {
         String path = FilenameUtils.removeExtension(fileId.getPath()).substring(directoryName.length() + 1);
-        return ResourceLocation.fromNamespaceAndPath(fileId.getNamespace(), path);
+        return Identifier.fromNamespaceAndPath(fileId.getNamespace(), path);
     }
 
-    protected boolean hasValidExtension(ResourceLocation fileId) {
+    protected boolean hasValidExtension(Identifier fileId) {
         return VALID_EXTENSIONS.keySet()
             .stream()
             .anyMatch(suffix -> fileId.getPath().endsWith(suffix));

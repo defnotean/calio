@@ -4,13 +4,13 @@ import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 
 public class CalioNetworking {
 
-    public static final ResourceLocation SYNC_DATA_OBJECT_REGISTRY_ID = ResourceLocation.fromNamespaceAndPath("calio", "sync_data_object_registry");
+    public static final Identifier SYNC_DATA_OBJECT_REGISTRY_ID = Identifier.fromNamespaceAndPath("calio", "sync_data_object_registry");
 
-    public record SyncDataObjectRegistryPayload(ResourceLocation registryId, byte[] data) implements CustomPacketPayload {
+    public record SyncDataObjectRegistryPayload(Identifier registryId, byte[] data) implements CustomPacketPayload {
 
         public static final CustomPacketPayload.Type<SyncDataObjectRegistryPayload> TYPE =
             new CustomPacketPayload.Type<>(SYNC_DATA_OBJECT_REGISTRY_ID);
@@ -18,11 +18,11 @@ public class CalioNetworking {
         public static final StreamCodec<RegistryFriendlyByteBuf, SyncDataObjectRegistryPayload> CODEC =
             StreamCodec.of(
                 (buf, payload) -> {
-                    buf.writeResourceLocation(payload.registryId);
+                    buf.writeIdentifier(payload.registryId);
                     buf.writeByteArray(payload.data);
                 },
                 buf -> {
-                    ResourceLocation registryId = buf.readResourceLocation();
+                    Identifier registryId = buf.readIdentifier();
                     byte[] data = buf.readByteArray();
                     return new SyncDataObjectRegistryPayload(registryId, data);
                 }

@@ -10,7 +10,7 @@ import io.github.apace100.calio.ClassUtil;
 import io.github.apace100.calio.FilterableWeightedList;
 import io.github.apace100.calio.mixin.WeightedListEntryAccessor;
 import io.github.apace100.calio.util.ArgumentWrapper;
-import io.github.apace100.calio.util.DynamicResourceLocation;
+import io.github.apace100.calio.util.DynamicIdentifier;
 import io.github.apace100.calio.util.TagLike;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.core.RegistryAccess;
@@ -18,7 +18,7 @@ import net.minecraft.core.Registry;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.core.Holder;
 import net.minecraft.tags.TagKey;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.util.GsonHelper;
 import net.minecraft.world.entity.ai.behavior.WeightedList;
 
@@ -211,27 +211,27 @@ public class SerializableDataType<T> {
     }
 
     public static <T> SerializableDataType<T> registry(Class<T> dataClass, Registry<T> registry, boolean showPossibleValues) {
-        return registry(dataClass, registry, ResourceLocation.DEFAULT_NAMESPACE, showPossibleValues);
+        return registry(dataClass, registry, Identifier.DEFAULT_NAMESPACE, showPossibleValues);
     }
 
     public static <T> SerializableDataType<T> registry(Class<T> dataClass, Registry<T> registry, String defaultNamespace, boolean showPossibleValues) {
         return registry(dataClass, registry, defaultNamespace, (reg, id) -> {
-            String possibleValues = showPossibleValues ? " Expected value to be any of " + String.join(", ", reg.keySet().stream().map(ResourceLocation::toString).toList()) : "";
+            String possibleValues = showPossibleValues ? " Expected value to be any of " + String.join(", ", reg.keySet().stream().map(Identifier::toString).toList()) : "";
             return new RuntimeException("Type \"%s\" is not registered in registry \"%s\".%s".formatted(id, registry.key().location(), possibleValues));
         });
     }
 
-    public static <T> SerializableDataType<T> registry(Class<T> dataClass, Registry<T> registry, BiFunction<Registry<T>, ResourceLocation, RuntimeException> exception) {
-        return registry(dataClass, registry, ResourceLocation.DEFAULT_NAMESPACE, exception);
+    public static <T> SerializableDataType<T> registry(Class<T> dataClass, Registry<T> registry, BiFunction<Registry<T>, Identifier, RuntimeException> exception) {
+        return registry(dataClass, registry, Identifier.DEFAULT_NAMESPACE, exception);
     }
 
-    public static <T> SerializableDataType<T> registry(Class<T> dataClass, Registry<T> registry, String defaultNamespace, BiFunction<Registry<T>, ResourceLocation, RuntimeException> exception) {
+    public static <T> SerializableDataType<T> registry(Class<T> dataClass, Registry<T> registry, String defaultNamespace, BiFunction<Registry<T>, Identifier, RuntimeException> exception) {
         return wrap(
             dataClass,
             SerializableDataTypes.STRING,
             t -> Objects.requireNonNull(registry.getKey(t)).toString(),
             idString -> {
-                ResourceLocation id = DynamicResourceLocation.of(idString, defaultNamespace);
+                Identifier id = DynamicIdentifier.of(idString, defaultNamespace);
                 return registry.getOptional(id).orElseThrow(() -> exception.apply(registry, id));
             }
         );

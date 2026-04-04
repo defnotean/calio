@@ -14,8 +14,8 @@ import net.fabricmc.fabric.api.resource.IdentifiableResourceReloadListener;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.packs.resources.ResourceManager;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.resources.ResourceLocation;
-import net.minecraft.ResourceLocationException;
+import net.minecraft.resources.Identifier;
+import net.minecraft.IdentifierException;
 import net.minecraft.util.GsonHelper;
 import net.minecraft.util.profiling.ProfilerFiller;
 import org.jetbrains.annotations.NotNull;
@@ -29,20 +29,20 @@ import java.util.function.Supplier;
 
 public class DataObjectRegistry<T extends DataObject<T>> {
 
-    private static final HashMap<ResourceLocation, DataObjectRegistry<?>> REGISTRIES = new HashMap<>();
-    private static final Set<ResourceLocation> AUTO_SYNC_SET = new HashSet<>();
+    private static final HashMap<Identifier, DataObjectRegistry<?>> REGISTRIES = new HashMap<>();
+    private static final Set<Identifier> AUTO_SYNC_SET = new HashSet<>();
 
-    private final ResourceLocation registryId;
+    private final Identifier registryId;
     private final Class<T> objectClass;
 
-    private final HashMap<ResourceLocation, T> idToEntry = new HashMap<>();
-    private final HashMap<T, ResourceLocation> entryToId = new HashMap<>();
-    private final HashMap<ResourceLocation, T> staticEntries = new HashMap<>();
+    private final HashMap<Identifier, T> idToEntry = new HashMap<>();
+    private final HashMap<T, Identifier> entryToId = new HashMap<>();
+    private final HashMap<Identifier, T> staticEntries = new HashMap<>();
 
     private final String factoryFieldName;
     private final DataObjectFactory<T> defaultFactory;
-    private final HashMap<ResourceLocation, DataObjectFactory<T>> factoriesById = new HashMap<>();
-    private final HashMap<DataObjectFactory<T>, ResourceLocation> factoryToId = new HashMap<>();
+    private final HashMap<Identifier, DataObjectFactory<T>> factoriesById = new HashMap<>();
+    private final HashMap<DataObjectFactory<T>, Identifier> factoryToId = new HashMap<>();
 
     private SerializableDataType<T> dataType;
     private SerializableDataType<List<T>> listDataType;
@@ -53,7 +53,7 @@ public class DataObjectRegistry<T extends DataObject<T>> {
 
     private Loader loader;
 
-    private DataObjectRegistry(ResourceLocation registryId, Class<T> objectClass, String factoryFieldName, DataObjectFactory<T> defaultFactory, Function<JsonElement, JsonElement> jsonPreprocessor) {
+    private DataObjectRegistry(Identifier registryId, Class<T> objectClass, String factoryFieldName, DataObjectFactory<T> defaultFactory, Function<JsonElement, JsonElement> jsonPreprocessor) {
         this.registryId = registryId;
         this.objectClass = objectClass;
         this.factoryFieldName = factoryFieldName;
@@ -61,7 +61,7 @@ public class DataObjectRegistry<T extends DataObject<T>> {
         this.jsonPreprocessor = jsonPreprocessor;
     }
 
-    private DataObjectRegistry(ResourceLocation registryId, Class<T> objectClass, String factoryFieldName, DataObjectFactory<T> defaultFactory, Function<JsonElement, JsonElement> jsonPreprocessor, String dataFolder, boolean useLoadingPriority, BiConsumer<ResourceLocation, Exception> errorHandler) {
+    private DataObjectRegistry(Identifier registryId, Class<T> objectClass, String factoryFieldName, DataObjectFactory<T> defaultFactory, Function<JsonElement, JsonElement> jsonPreprocessor, String dataFolder, boolean useLoadingPriority, BiConsumer<Identifier, Exception> errorHandler) {
         this(registryId, objectClass, factoryFieldName, defaultFactory, jsonPreprocessor);
         loader = new Loader(dataFolder, useLoadingPriority, errorHandler);
     }
@@ -76,51 +76,51 @@ public class DataObjectRegistry<T extends DataObject<T>> {
         return loader;
     }
 
-    public ResourceLocation getRegistryId() {
+    public Identifier getRegistryId() {
         return registryId;
     }
 
-    public ResourceLocation getId(T entry) {
+    public Identifier getId(T entry) {
         return entryToId.get(entry);
     }
 
-    public DataObjectFactory<T> getFactory(ResourceLocation id) {
+    public DataObjectFactory<T> getFactory(Identifier id) {
         return factoriesById.get(id);
     }
 
-    public ResourceLocation getFactoryId(DataObjectFactory<T> factory) {
+    public Identifier getFactoryId(DataObjectFactory<T> factory) {
         return factoryToId.get(factory);
     }
 
-    public void registerFactory(ResourceLocation id, DataObjectFactory<T> factory) {
+    public void registerFactory(Identifier id, DataObjectFactory<T> factory) {
         factoriesById.put(id, factory);
         factoryToId.put(factory, id);
     }
 
-    public void register(ResourceLocation id, T entry) {
+    public void register(Identifier id, T entry) {
         idToEntry.put(id, entry);
         entryToId.put(entry, id);
     }
 
-    public void registerStatic(ResourceLocation id, T entry) {
+    public void registerStatic(Identifier id, T entry) {
         staticEntries.put(id, entry);
         register(id, entry);
     }
 
     public void write(FriendlyByteBuf buf) {
         buf.writeInt(idToEntry.size() - staticEntries.size());
-        for(Map.Entry<ResourceLocation, T> entry : idToEntry.entrySet()) {
+        for(Map.Entry<Identifier, T> entry : idToEntry.entrySet()) {
             if(staticEntries.containsKey(entry.getKey())) {
                 continue;
             }
-            buf.writeResourceLocation(entry.getKey());
+            buf.writeIdentifier(entry.getKey());
             writeDataObject(buf, entry.getValue());
         }
     }
 
     public void writeDataObject(FriendlyByteBuf buf, T t) {
         DataObjectFactory<T> factory = t.getFactory();
-        buf.writeResourceLocation(factoryToId.get(factory));
+        buf.writeIdentifier(factoryToId.get(factory));
         SerializableData.Instance data = factory.toData(t);
         factory.getData().write(buf, data);
     }
@@ -131,9 +131,9 @@ public class DataObjectRegistry<T extends DataObject<T>> {
 
     public void receive(FriendlyByteBuf buf, Consumer<Runnable> scheduler) {
         int entryCount = buf.readInt();
-        HashMap<ResourceLocation, T> entries = new HashMap<>(entryCount);
+        HashMap<Identifier, T> entries = new HashMap<>(entryCount);
         for(int i = 0; i < entryCount; i++) {
-            ResourceLocation entryId = buf.readResourceLocation();
+            Identifier entryId = buf.readIdentifier();
             T entry = receiveDataObject(buf);
             entries.put(entryId, entry);
         }
@@ -144,7 +144,7 @@ public class DataObjectRegistry<T extends DataObject<T>> {
     }
 
     public T receiveDataObject(FriendlyByteBuf buf) {
-        ResourceLocation factoryId = buf.readResourceLocation();
+        Identifier factoryId = buf.readIdentifier();
         DataObjectFactory<T> factory = getFactory(factoryId);
         SerializableData.Instance data = factory.getData().read(buf);
         return factory.fromData(data);
@@ -167,10 +167,10 @@ public class DataObjectRegistry<T extends DataObject<T>> {
         DataObjectFactory<T> factory;
         if(jsonObject.has(factoryFieldName)) {
             String type = GsonHelper.getAsString(jsonObject, factoryFieldName);
-            ResourceLocation factoryId = null;
+            Identifier factoryId = null;
             try {
-                factoryId = ResourceLocation.parse(type);
-            } catch (ResourceLocationException e) {
+                factoryId = Identifier.parse(type);
+            } catch (IdentifierException e) {
                 throw new JsonParseException(
                     "Could not read data object of type \"" + registryId +
                         "\": invalid factory identifier (id: \"" + factoryId + "\").", e);
@@ -204,15 +204,15 @@ public class DataObjectRegistry<T extends DataObject<T>> {
     }
 
     @Nullable
-    public T get(ResourceLocation id) {
+    public T get(Identifier id) {
         return idToEntry.get(id);
     }
 
-    public Set<ResourceLocation> getIds() {
+    public Set<Identifier> getIds() {
         return idToEntry.keySet();
     }
 
-    public boolean containsId(ResourceLocation id) {
+    public boolean containsId(Identifier id) {
         return idToEntry.containsKey(id);
     }
 
@@ -265,12 +265,12 @@ public class DataObjectRegistry<T extends DataObject<T>> {
         return SerializableDataType.wrap(objectClass, SerializableDataTypes.IDENTIFIER, this::getId, this::get);
     }
 
-    public static DataObjectRegistry<?> getRegistry(ResourceLocation registryId) {
+    public static DataObjectRegistry<?> getRegistry(Identifier registryId) {
         return REGISTRIES.get(registryId);
     }
 
     public static void performAutoSync(ServerPlayer player) {
-        for(ResourceLocation registryId : AUTO_SYNC_SET) {
+        for(Identifier registryId : AUTO_SYNC_SET) {
             DataObjectRegistry<?> registry = getRegistry(registryId);
             registry.sync(player);
         }
@@ -279,18 +279,18 @@ public class DataObjectRegistry<T extends DataObject<T>> {
     private class Loader extends MultiJsonDataLoader implements IdentifiableResourceReloadListener {
 
         private static final Gson GSON = (new GsonBuilder()).setPrettyPrinting().disableHtmlEscaping().create();
-        private static final HashMap<ResourceLocation, Integer> LOADING_PRIORITIES = new HashMap<>();
+        private static final HashMap<Identifier, Integer> LOADING_PRIORITIES = new HashMap<>();
         private final boolean useLoadingPriority;
-        private final BiConsumer<ResourceLocation, Exception> errorHandler;
+        private final BiConsumer<Identifier, Exception> errorHandler;
 
-        public Loader(String dataFolder, boolean useLoadingPriority, BiConsumer<ResourceLocation, Exception> errorHandler) {
+        public Loader(String dataFolder, boolean useLoadingPriority, BiConsumer<Identifier, Exception> errorHandler) {
             super(GSON, dataFolder);
             this.useLoadingPriority = useLoadingPriority;
             this.errorHandler = errorHandler;
         }
 
         @Override
-        protected void apply(Map<ResourceLocation, List<JsonElement>> data, ResourceManager manager, ProfilerFiller profiler) {
+        protected void apply(Map<Identifier, List<JsonElement>> data, ResourceManager manager, ProfilerFiller profiler) {
             clear();
             LOADING_PRIORITIES.clear();
             data.forEach((id, jel) -> {
@@ -322,14 +322,14 @@ public class DataObjectRegistry<T extends DataObject<T>> {
         }
 
         @Override
-        public ResourceLocation getFabricId() {
+        public Identifier getFabricId() {
             return registryId;
         }
     }
 
     public static class Builder<T extends DataObject<T>> {
 
-        private final ResourceLocation registryId;
+        private final Identifier registryId;
         private final Class<T> objectClass;
         private String factoryFieldName = "type";
         private boolean autoSync = false;
@@ -338,9 +338,9 @@ public class DataObjectRegistry<T extends DataObject<T>> {
         private String dataFolder;
         private boolean readFromData = false;
         private boolean useLoadingPriority;
-        private BiConsumer<ResourceLocation, Exception> errorHandler;
+        private BiConsumer<Identifier, Exception> errorHandler;
 
-        public Builder(ResourceLocation registryId, Class<T> objectClass) {
+        public Builder(Identifier registryId, Class<T> objectClass) {
             this.registryId = registryId;
             this.objectClass = objectClass;
             if(REGISTRIES.containsKey(registryId)) {
@@ -375,7 +375,7 @@ public class DataObjectRegistry<T extends DataObject<T>> {
             return this;
         }
 
-        public Builder<T> dataErrorHandler(BiConsumer<ResourceLocation, Exception> handler) {
+        public Builder<T> dataErrorHandler(BiConsumer<Identifier, Exception> handler) {
             this.errorHandler = handler;
             return this;
         }

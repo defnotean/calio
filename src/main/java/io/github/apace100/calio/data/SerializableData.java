@@ -6,7 +6,7 @@ import com.google.gson.JsonSyntaxException;
 import io.github.apace100.calio.Calio;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.network.FriendlyByteBuf;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -207,7 +207,7 @@ public class SerializableData {
             return get(name);
         }
 
-        public ResourceLocation getId(String name) {
+        public Identifier getId(String name) {
             return get(name);
         }
 

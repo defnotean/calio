@@ -2,25 +2,25 @@ package io.github.apace100.calio.util;
 
 import com.google.gson.JsonElement;
 import io.github.apace100.calio.data.SerializableData;
-import net.minecraft.resources.ResourceLocation;
-import net.minecraft.ResourceLocationException;
+import net.minecraft.resources.Identifier;
+import net.minecraft.IdentifierException;
 
-public class DynamicResourceLocation {
+public class DynamicIdentifier {
 
-    public static final String DEFAULT_NAMESPACE = ResourceLocation.DEFAULT_NAMESPACE;
+    public static final String DEFAULT_NAMESPACE = Identifier.DEFAULT_NAMESPACE;
 
-    protected DynamicResourceLocation() {
+    protected DynamicIdentifier() {
     }
 
-    public static ResourceLocation of(JsonElement jsonElement) {
+    public static Identifier of(JsonElement jsonElement) {
         return of(jsonElement.getAsString());
     }
 
-    public static ResourceLocation of(String idString) {
+    public static Identifier of(String idString) {
         return of(idString, DEFAULT_NAMESPACE);
     }
 
-    public static ResourceLocation of(String idString, String defaultNamespace) {
+    public static Identifier of(String idString, String defaultNamespace) {
 
         String[] namespaceAndPath = splitWithNamespace(idString, defaultNamespace);
         if (namespaceAndPath[0].contains("*")) {
@@ -28,7 +28,7 @@ public class DynamicResourceLocation {
             if (currentNamespace != null) {
                 namespaceAndPath[0] = namespaceAndPath[0].replace("*", currentNamespace);
             } else {
-                throw new ResourceLocationException("ResourceLocations may only contain '*' in its namespace in data loaders that support it.");
+                throw new IdentifierException("Identifiers may only contain '*' in its namespace in data loaders that support it.");
             }
         }
 
@@ -37,11 +37,11 @@ public class DynamicResourceLocation {
             if (currentPath != null) {
                 namespaceAndPath[1] = namespaceAndPath[1].replace("*", currentPath);
             } else {
-                throw new ResourceLocationException("ResourceLocations may only contain '*' in its path in data loaders that support it.");
+                throw new IdentifierException("Identifiers may only contain '*' in its path in data loaders that support it.");
             }
         }
 
-        return ResourceLocation.fromNamespaceAndPath(namespaceAndPath[0], namespaceAndPath[1]);
+        return Identifier.fromNamespaceAndPath(namespaceAndPath[0], namespaceAndPath[1]);
 
     }
 
@@ -49,7 +49,7 @@ public class DynamicResourceLocation {
 
         String[] namespaceAndPath = idString.split(":");
         if (namespaceAndPath.length > 2) {
-            throw new ResourceLocationException("ResourceLocation \"" + idString + "\" must only have one \":\" separating its namespace and path.");
+            throw new IdentifierException("Identifier \"" + idString + "\" must only have one \":\" separating its namespace and path.");
         }
 
         if (namespaceAndPath.length == 1) {

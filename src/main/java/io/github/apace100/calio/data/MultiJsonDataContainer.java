@@ -1,12 +1,12 @@
 package io.github.apace100.calio.data;
 
 import com.google.gson.JsonElement;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 
 import java.util.LinkedHashMap;
 import java.util.List;
 
-public class MultiJsonDataContainer extends LinkedHashMap<ResourceLocation, LinkedHashMap<String, List<JsonElement>>> {
+public class MultiJsonDataContainer extends LinkedHashMap<Identifier, LinkedHashMap<String, List<JsonElement>>> {
 
     public void forEach(Processor processor) {
         super.forEach((id, packedJsonData) ->
@@ -16,7 +16,7 @@ public class MultiJsonDataContainer extends LinkedHashMap<ResourceLocation, Link
 
     @FunctionalInterface
     public interface Processor {
-        void process(String packName, ResourceLocation id, JsonElement jsonElement);
+        void process(String packName, Identifier id, JsonElement jsonElement);
     }
 
 }

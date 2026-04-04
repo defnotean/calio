@@ -7,7 +7,7 @@ import net.fabricmc.api.Environment;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.FriendlyByteBuf;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 
 @Environment(EnvType.CLIENT)
 public class CalioNetworkingClient {
@@ -16,7 +16,7 @@ public class CalioNetworkingClient {
         ClientPlayNetworking.registerGlobalReceiver(
             CalioNetworking.SyncDataObjectRegistryPayload.TYPE,
             (payload, context) -> {
-                ResourceLocation registryId = payload.registryId();
+                Identifier registryId = payload.registryId();
                 FriendlyByteBuf buf = new FriendlyByteBuf(Unpooled.wrappedBuffer(payload.data()));
                 Minecraft minecraft = context.client();
                 DataObjectRegistry.getRegistry(registryId).receive(buf,
