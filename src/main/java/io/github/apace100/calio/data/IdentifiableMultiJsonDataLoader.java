@@ -7,7 +7,7 @@ import net.minecraft.server.packs.resources.ResourceManager;
 import net.minecraft.server.packs.PackType;
 import net.minecraft.server.packs.resources.SimplePreparableReloadListener;
 import net.minecraft.resources.Identifier;
-import net.minecraft.Util;
+import net.minecraft.util.Util;
 import net.minecraft.util.profiling.ProfilerFiller;
 import org.apache.commons.io.FilenameUtils;
 import org.quiltmc.parsers.json.JsonFormat;

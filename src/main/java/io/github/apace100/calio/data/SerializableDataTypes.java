@@ -4,7 +4,6 @@ import com.google.common.collect.HashBiMap;
 import com.google.common.collect.ImmutableMap;
 import com.google.gson.*;
 import com.google.gson.internal.LazilyParsedNumber;
-import com.mojang.brigadier.StringReader;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.mojang.serialization.JsonOps;
 import io.github.apace100.calio.Calio;
@@ -14,7 +13,7 @@ import io.github.apace100.calio.mixin.IngredientAccessor;
 import io.github.apace100.calio.util.*;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.client.renderer.FogRenderer;
+import net.minecraft.client.renderer.fog.FogData;
 import net.minecraft.commands.arguments.blocks.BlockStateParser;
 import net.minecraft.commands.arguments.NbtPathArgument;
 import net.minecraft.world.item.enchantment.Enchantment;
@@ -36,6 +35,7 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtOps;
 import net.minecraft.nbt.TagParser;
 import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.core.particles.ParticleOptions;
 import net.minecraft.core.particles.ParticleType;
 import net.minecraft.world.item.crafting.Ingredient;
@@ -322,8 +322,8 @@ public final class SerializableDataTypes {
     // An alternative version of an ingredient deserializer which allows `minecraft:air`
     public static final SerializableDataType<Ingredient> INGREDIENT = new SerializableDataType<>(
         Ingredient.class,
-        (buffer, ingredient) -> Ingredient.CONTENTS_STREAM_CODEC.encode(buffer, ingredient),
-        (buffer) -> Ingredient.CONTENTS_STREAM_CODEC.decode(buffer),
+        (buffer, ingredient) -> Ingredient.CONTENTS_STREAM_CODEC.encode((RegistryFriendlyByteBuf) buffer, ingredient),
+        (buffer) -> Ingredient.CONTENTS_STREAM_CODEC.decode((RegistryFriendlyByteBuf) buffer),
         jsonElement -> Ingredient.CODEC.parse(JsonOps.INSTANCE, jsonElement)
             .resultOrPartial(Calio.LOGGER::error)
             .orElseThrow(() -> new RuntimeException("Failed to read ingredient json.")),
@@ -334,8 +334,8 @@ public final class SerializableDataTypes {
     // The regular vanilla Minecraft ingredient (same codec-based approach).
     public static final SerializableDataType<Ingredient> VANILLA_INGREDIENT = new SerializableDataType<>(
         Ingredient.class,
-        (buffer, ingredient) -> Ingredient.CONTENTS_STREAM_CODEC.encode(buffer, ingredient),
-        (buffer) -> Ingredient.CONTENTS_STREAM_CODEC.decode(buffer),
+        (buffer, ingredient) -> Ingredient.CONTENTS_STREAM_CODEC.encode((RegistryFriendlyByteBuf) buffer, ingredient),
+        (buffer) -> Ingredient.CONTENTS_STREAM_CODEC.decode((RegistryFriendlyByteBuf) buffer),
         json -> Ingredient.CODEC.parse(JsonOps.INSTANCE, json)
             .resultOrPartial(Calio.LOGGER::error)
             .orElseThrow(() -> new RuntimeException("Failed to read vanilla ingredient json.")),
@@ -435,7 +435,7 @@ public final class SerializableDataTypes {
 
             try {
                 String stringifiedJsonElement = jsonElement.isJsonObject() ? jsonElement.getAsJsonObject().toString() : jsonElement.getAsJsonPrimitive().getAsString();
-                return new TagParser(new StringReader(stringifiedJsonElement)).readStruct();
+                return TagParser.parseTag(stringifiedJsonElement);
             }
             catch (CommandSyntaxException e) {
                 throw new JsonSyntaxException("Could not parse NBT: " + e.getMessage());
@@ -495,13 +495,14 @@ public final class SerializableDataTypes {
             buffer.writeIdentifier(BuiltInRegistries.RECIPE_SERIALIZER.getKey(recipe.value().getSerializer()));
             buffer.writeIdentifier(recipe.id());
             // Use StreamCodec for network serialization
-            recipe.value().getSerializer().streamCodec().encode(buffer, recipe.value());
+            recipe.value().getSerializer().streamCodec().encode((RegistryFriendlyByteBuf) buffer, recipe.value());
         },
         (buffer) -> {
             Identifier recipeSerializerId = buffer.readIdentifier();
             Identifier recipeId = buffer.readIdentifier();
-            RecipeSerializer<?> serializer = BuiltInRegistries.RECIPE_SERIALIZER.get(recipeSerializerId);
-            return new RecipeHolder<>(recipeId, serializer.streamCodec().decode(buffer));
+            RecipeSerializer<?> serializer = BuiltInRegistries.RECIPE_SERIALIZER.getOptional(recipeSerializerId)
+                .orElseThrow(() -> new RuntimeException("Unknown recipe serializer: " + recipeSerializerId));
+            return new RecipeHolder<>(recipeId, serializer.streamCodec().decode((RegistryFriendlyByteBuf) buffer));
         },
         (jsonElement) -> {
             if(!jsonElement.isJsonObject()) {
@@ -510,7 +511,8 @@ public final class SerializableDataTypes {
             JsonObject json = jsonElement.getAsJsonObject();
             Identifier recipeSerializerId = Identifier.tryParse(GsonHelper.getAsString(json, "type"));
             Identifier recipeId = Identifier.tryParse(GsonHelper.getAsString(json, "id"));
-            RecipeSerializer<?> serializer = BuiltInRegistries.RECIPE_SERIALIZER.get(recipeSerializerId);
+            RecipeSerializer<?> serializer = BuiltInRegistries.RECIPE_SERIALIZER.getOptional(recipeSerializerId)
+                .orElseThrow(() -> new RuntimeException("Unknown recipe serializer: " + recipeSerializerId));
             return new RecipeHolder<>(recipeId, serializer.codec().parse(JsonOps.INSTANCE, json).resultOrPartial(Calio.LOGGER::error).orElseThrow(() -> new RuntimeException("Failed to read recipe json.")));
         },
         recipe -> {
@@ -534,7 +536,7 @@ public final class SerializableDataTypes {
 
     public static final SerializableDataType<Fluid> FLUID = SerializableDataType.registry(Fluid.class, BuiltInRegistries.FLUID);
 
-    public static final SerializableDataType<FogRenderer.FogMode> CAMERA_SUBMERSION_TYPE = SerializableDataType.enumValue(FogRenderer.FogMode.class);
+    public static final SerializableDataType<FogData.FogMode> CAMERA_SUBMERSION_TYPE = SerializableDataType.enumValue(FogData.FogMode.class);
 
     public static final SerializableDataType<InteractionHand> HAND = SerializableDataType.enumValue(InteractionHand.class);
 
@@ -542,7 +544,14 @@ public final class SerializableDataTypes {
 
     public static final SerializableDataType<EnumSet<EquipmentSlot>> EQUIPMENT_SLOT_SET = SerializableDataType.enumSet(EquipmentSlot.class, EQUIPMENT_SLOT);
 
-    public static final SerializableDataType<InteractionResult> ACTION_RESULT = SerializableDataType.enumValue(InteractionResult.class);
+    public static final SerializableDataType<InteractionResult> ACTION_RESULT =
+        SerializableDataType.mapped(InteractionResult.class, HashBiMap.create(ImmutableMap.of(
+            "success", InteractionResult.SUCCESS,
+            "success_server", InteractionResult.SUCCESS_SERVER,
+            "consume", InteractionResult.CONSUME,
+            "pass", InteractionResult.PASS,
+            "fail", InteractionResult.FAIL
+        )));
 
     public static final SerializableDataType<UseAnim> USE_ACTION = SerializableDataType.enumValue(UseAnim.class);
 
@@ -622,7 +631,8 @@ public final class SerializableDataTypes {
             Registry<?> statRegistry = statType.getRegistry();
             Identifier statId = data.get("id");
             if(statRegistry.containsKey(statId)) {
-                Object statObject = statRegistry.get(statId);
+                Object statObject = statRegistry.getOptional(statId)
+                    .orElseThrow(() -> new IllegalArgumentException("Desired stat \"" + statId + "\" does not exist in stat type"));
                 return statType.get(statObject);
             }
             throw new IllegalArgumentException("Desired stat \"" + statId + "\" does not exist in stat type ");

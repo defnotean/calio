@@ -20,7 +20,7 @@ import net.minecraft.core.Holder;
 import net.minecraft.tags.TagKey;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.GsonHelper;
-import net.minecraft.world.entity.ai.behavior.WeightedList;
+import net.minecraft.util.random.WeightedList;
 
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;

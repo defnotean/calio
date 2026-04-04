@@ -34,7 +34,7 @@ public class TagLike<T> {
     }
 
     public void add(Identifier id) {
-        add(registry.get(id));
+        registry.getOptional(id).ifPresent(this::add);
     }
 
     public void addTag(TagKey<T> tagKey) {
@@ -102,13 +102,7 @@ public class TagLike<T> {
 
         count = buf.readVarInt();
         for (int i = 0; i < count; i++) {
-
-            T t = registry.get(buf.readIdentifier());
-
-            if (t != null) {
-                items.add(t);
-            }
-
+            registry.getOptional(buf.readIdentifier()).ifPresent(items::add);
         }
 
     }

@@ -158,7 +158,8 @@ public class SerializationHelper {
         boolean ambient = buf.readBoolean();
         boolean showParticles = buf.readBoolean();
         boolean showIcon = buf.readBoolean();
-        Holder<MobEffect> holder = BuiltInRegistries.MOB_EFFECT.wrapAsHolder(BuiltInRegistries.MOB_EFFECT.get(effect));
+        Holder.Reference<MobEffect> holder = BuiltInRegistries.MOB_EFFECT.getHolder(effect)
+            .orElseThrow(() -> new RuntimeException("Could not find status effect with id: " + effect));
         return new MobEffectInstance(holder, duration, amplifier, ambient, showParticles, showIcon);
     }
 

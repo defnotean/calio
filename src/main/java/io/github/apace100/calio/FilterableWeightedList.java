@@ -1,7 +1,7 @@
 package io.github.apace100.calio;
 
 import io.github.apace100.calio.mixin.WeightedListEntryAccessor;
-import net.minecraft.world.entity.ai.behavior.WeightedList;
+import net.minecraft.util.random.WeightedList;
 
 import java.util.Random;
 import java.util.function.Predicate;
