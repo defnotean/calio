@@ -5,15 +5,11 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonSyntaxException;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.DataResult;
-import io.github.apace100.calio.access.ExtraShapedRecipeData;
-import io.github.apace100.calio.mixin.ShapedRecipeAccessor;
 import net.minecraft.core.Holder;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.effect.MobEffect;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.network.FriendlyByteBuf;
-import net.minecraft.world.item.crafting.Ingredient;
-import net.minecraft.world.item.crafting.ShapedRecipe;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.GsonHelper;
@@ -24,82 +20,7 @@ import java.util.function.Function;
 
 public class SerializationHelper {
 
-    public static Codec<ShapedRecipe> SHAPED_RECIPE_CODEC = ShapedRecipe.Serializer.RawShapedRecipe.CODEC.flatXmap(
-        rawShapedRecipe -> {
-
-            String[] unpaddedPattern = ShapedRecipeAccessor.callRemovePadding(rawShapedRecipe.pattern());
-
-            int width = unpaddedPattern[0].length();
-            int height = unpaddedPattern.length;
-
-            NonNullList<Ingredient> ingredients = NonNullList.withSize(width * height, Ingredient.EMPTY);
-            Set<String> patternKeys = new HashSet<>(rawShapedRecipe.key().keySet());
-
-            for (int sliceIndex = 0; sliceIndex < unpaddedPattern.length; ++sliceIndex) {
-
-                String patternSlice = unpaddedPattern[sliceIndex];
-
-                for (int keyIndex = 0; keyIndex < patternSlice.length(); ++keyIndex) {
-
-                    String patternKey = patternSlice.substring(keyIndex, keyIndex + 1);
-                    Ingredient ingredient = patternKey.equals(" ") ? Ingredient.EMPTY : rawShapedRecipe.key().get(patternKey);
-
-                    if (ingredient == null) {
-                        return DataResult.error(() -> "Pattern references symbol '" + patternKey + "' but it's not defined in the key!");
-                    }
-
-                    patternKeys.remove(patternKey);
-                    ingredients.set(keyIndex + width * sliceIndex, ingredient);
-
-                }
-
-            }
-
-            if (!patternKeys.isEmpty()) {
-                return DataResult.error(() -> "Key defines symbols that aren't used in pattern: " + patternKeys);
-            }
-
-            ShapedRecipe shapedRecipe = new ShapedRecipe(
-                rawShapedRecipe.group(),
-                rawShapedRecipe.category(),
-                width,
-                height,
-                ingredients,
-                rawShapedRecipe.result(),
-                rawShapedRecipe.showNotification()
-            );
-
-            if (shapedRecipe instanceof ExtraShapedRecipeData extraShapedRecipeData) {
-
-                extraShapedRecipeData.calio$setKeyMapping(rawShapedRecipe.key());
-                extraShapedRecipeData.calio$setPattern(rawShapedRecipe.pattern());
-
-                extraShapedRecipeData.calio$setResult(rawShapedRecipe.result());
-
-            }
-
-            return DataResult.success(shapedRecipe);
-
-        },
-        shapedRecipe -> {
-
-            if (!(shapedRecipe instanceof ExtraShapedRecipeData extraShapedRecipeData)) {
-                return DataResult.error(() -> "Cannot serialize ShapedRecipe with missing key, pattern and result data.");
-            }
-
-            ShapedRecipe.Serializer.RawShapedRecipe rawShapedRecipe = new ShapedRecipe.Serializer.RawShapedRecipe(
-                shapedRecipe.getGroup(),
-                shapedRecipe.category(),
-                extraShapedRecipeData.calio$getKeyMapping(),
-                extraShapedRecipeData.calio$getPattern(),
-                extraShapedRecipeData.calio$getResult(),
-                shapedRecipe.showNotification()
-            );
-
-            return DataResult.success(rawShapedRecipe);
-
-        }
-    );
+    // Removed SHAPED_RECIPE_CODEC because shaped recipes natively serialize in modern Minecraft.
 
     // Use SerializableDataTypes.ATTRIBUTE_MODIFIER instead
     @Deprecated
@@ -120,7 +41,7 @@ public class SerializationHelper {
         String modId = buf.readUtf(32767);
         double modValue = buf.readDouble();
         int operation = buf.readInt();
-        return new AttributeModifier(Identifier.parse(modId), modValue, AttributeModifier.Operation.fromValue(operation));
+        return new AttributeModifier(Identifier.parse(modId), modValue, AttributeModifier.Operation.values()[Math.min(operation, AttributeModifier.Operation.values().length - 1)]);
     }
 
     // Use SerializableDataTypes.ATTRIBUTE_MODIFIER instead
@@ -128,7 +49,7 @@ public class SerializationHelper {
     public static void writeAttributeModifier(FriendlyByteBuf buf, AttributeModifier modifier) {
         buf.writeUtf(modifier.id().toString());
         buf.writeDouble(modifier.amount());
-        buf.writeInt(modifier.operation().toValue());
+        buf.writeInt(modifier.operation().ordinal());
     }
 
     public static MobEffectInstance readStatusEffect(JsonElement jsonElement) {
@@ -136,7 +57,10 @@ public class SerializationHelper {
             JsonObject json = jsonElement.getAsJsonObject();
             String effect = GsonHelper.getAsString(json, "effect");
             Identifier effectId = Identifier.tryParse(effect);
-            Optional<Holder.Reference<MobEffect>> holderOptional = BuiltInRegistries.MOB_EFFECT.getHolder(effectId);
+            final Identifier lookupId = effectId;
+            Optional<Holder.Reference<MobEffect>> holderOptional = BuiltInRegistries.MOB_EFFECT.listElements()
+                .filter(h -> h.key().identifier().equals(lookupId))
+                .findFirst();
             if(!holderOptional.isPresent()) {
                 throw new JsonSyntaxException("Error reading status effect: could not find status effect with id: " + effect);
             }
@@ -158,8 +82,11 @@ public class SerializationHelper {
         boolean ambient = buf.readBoolean();
         boolean showParticles = buf.readBoolean();
         boolean showIcon = buf.readBoolean();
-        Holder.Reference<MobEffect> holder = BuiltInRegistries.MOB_EFFECT.getHolder(effect)
-            .orElseThrow(() -> new RuntimeException("Could not find status effect with id: " + effect));
+        final Identifier lookupEffect = effect;
+        Holder.Reference<MobEffect> holder = BuiltInRegistries.MOB_EFFECT.listElements()
+            .filter(h -> h.key().identifier().equals(lookupEffect))
+            .findFirst()
+            .orElseThrow(() -> new RuntimeException("Could not find status effect with id: " + lookupEffect));
         return new MobEffectInstance(holder, duration, amplifier, ambient, showParticles, showIcon);
     }
 

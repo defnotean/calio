@@ -19,7 +19,6 @@ import net.minecraft.commands.arguments.NbtPathArgument;
 import net.minecraft.world.item.enchantment.Enchantment;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.world.item.component.CustomData;
-import net.minecraft.world.entity.MobType;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.ai.attributes.Attribute;
@@ -42,6 +41,7 @@ import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.item.crafting.RecipeHolder;
 import net.minecraft.world.item.crafting.RecipeSerializer;
 import net.minecraft.core.registries.*;
+import net.minecraft.core.Registry;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.stats.Stat;
 import net.minecraft.stats.StatType;
@@ -58,7 +58,7 @@ import net.minecraft.world.level.gameevent.GameEvent;
 import net.minecraft.world.level.Explosion;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
-import net.minecraft.world.item.UseAnim;
+
 import net.minecraft.util.GsonHelper;
 
 import java.util.*;
@@ -349,7 +349,7 @@ public final class SerializableDataTypes {
         BlockStateParser::serialize,
         string -> {
             try {
-                return BlockStateParser.parseForBlock(BuiltInRegistries.BLOCK.asLookup(), string, false).blockState();
+                return BlockStateParser.parseForBlock(BuiltInRegistries.BLOCK, string, false).blockState();
             } catch (CommandSyntaxException e) {
                 throw new JsonParseException(e);
             }
@@ -357,21 +357,20 @@ public final class SerializableDataTypes {
 
     public static final SerializableDataType<ResourceKey<DamageType>> DAMAGE_TYPE = SerializableDataType.registryKey(Registries.DAMAGE_TYPE);
 
-    public static final SerializableDataType<MobType> ENTITY_GROUP =
-        SerializableDataType.mapped(MobType.class, HashBiMap.create(ImmutableMap.of(
-            "default", MobType.UNDEFINED,
-            "undead", MobType.UNDEAD,
-            "arthropod", MobType.ARTHROPOD,
-            "illager", MobType.ILLAGER,
-            "aquatic", MobType.WATER
-        )));
+    /**
+     * @deprecated MobType was removed in MC 26.1. Entity groups are now represented via entity type tags.
+     * This data type is kept for legacy JSON compatibility but has no runtime effect.
+     * Reads/writes as a string. Use entity type tag conditions instead.
+     */
+    @Deprecated(forRemoval = true)
+    public static final SerializableDataType<String> ENTITY_GROUP = SerializableDataTypes.STRING;
 
     public static final SerializableDataType<EquipmentSlot> EQUIPMENT_SLOT = SerializableDataType.enumValue(EquipmentSlot.class);
 
     public static final SerializableDataType<SoundEvent> SOUND_EVENT = SerializableDataType.wrap(
         SoundEvent.class,
         IDENTIFIER,
-        SoundEvent::getLocation,
+        SoundEvent::location,
         SoundEvent::createVariableRangeEvent
     );
 
@@ -426,8 +425,8 @@ public final class SerializableDataTypes {
 
     public static final SerializableDataType<CompoundTag> NBT = new SerializableDataType<>(
         CompoundTag.class,
-        FriendlyByteBuf::writeNbt,
-        FriendlyByteBuf::readNbt,
+        (buffer, nbt) -> ((net.minecraft.network.FriendlyByteBuf)buffer).writeNbt(nbt),
+        buf -> (CompoundTag) buf.readNbt(),
         jsonElement -> {
 
             if (!(jsonElement.isJsonObject()|| jsonElement.isJsonPrimitive() && jsonElement.getAsJsonPrimitive().isString()))
@@ -435,7 +434,7 @@ public final class SerializableDataTypes {
 
             try {
                 String stringifiedJsonElement = jsonElement.isJsonObject() ? jsonElement.getAsJsonObject().toString() : jsonElement.getAsJsonPrimitive().getAsString();
-                return TagParser.parseTag(stringifiedJsonElement);
+                return TagParser.parseCompoundFully(stringifiedJsonElement);
             }
             catch (CommandSyntaxException e) {
                 throw new JsonSyntaxException("Could not parse NBT: " + e.getMessage());
@@ -482,10 +481,10 @@ public final class SerializableDataTypes {
     public static final SerializableDataType<List<ItemStack>> ITEM_STACKS = SerializableDataType.list(ITEM_STACK);
 
     public static final SerializableDataType<Component> TEXT = new SerializableDataType<>(Component.class,
-        (buffer, text) -> buffer.writeUtf(Component.Serializer.toJson(text)),
-        (buffer) -> Component.Serializer.fromJson(buffer.readUtf(32767)),
-        Component.Serializer::fromJson,
-        Component.Serializer::toJsonTree);
+        (buffer, text) -> net.minecraft.network.chat.ComponentSerialization.TRUSTED_STREAM_CODEC.encode((net.minecraft.network.RegistryFriendlyByteBuf) buffer, text),
+        (buffer) -> net.minecraft.network.chat.ComponentSerialization.TRUSTED_STREAM_CODEC.decode((net.minecraft.network.RegistryFriendlyByteBuf) buffer),
+        json -> net.minecraft.network.chat.ComponentSerialization.CODEC.parse(com.mojang.serialization.JsonOps.INSTANCE, json).getOrThrow(com.google.gson.JsonParseException::new),
+        text -> net.minecraft.network.chat.ComponentSerialization.CODEC.encodeStart(com.mojang.serialization.JsonOps.INSTANCE, text).getOrThrow(IllegalStateException::new));
 
     public static final SerializableDataType<List<Component>> TEXTS = SerializableDataType.list(TEXT);
 
@@ -493,16 +492,17 @@ public final class SerializableDataTypes {
     public static final SerializableDataType<RecipeHolder> RECIPE = new SerializableDataType<>(RecipeHolder.class,
         (buffer, recipe) -> {
             buffer.writeIdentifier(BuiltInRegistries.RECIPE_SERIALIZER.getKey(recipe.value().getSerializer()));
-            buffer.writeIdentifier(recipe.id());
+            buffer.writeIdentifier(recipe.id().identifier());
             // Use StreamCodec for network serialization
             recipe.value().getSerializer().streamCodec().encode((RegistryFriendlyByteBuf) buffer, recipe.value());
         },
         (buffer) -> {
             Identifier recipeSerializerId = buffer.readIdentifier();
-            Identifier recipeId = buffer.readIdentifier();
+            net.minecraft.resources.ResourceKey<net.minecraft.world.item.crafting.Recipe<?>> recipeKey =
+                net.minecraft.resources.ResourceKey.create(net.minecraft.core.registries.Registries.RECIPE, buffer.readIdentifier());
             RecipeSerializer<?> serializer = BuiltInRegistries.RECIPE_SERIALIZER.getOptional(recipeSerializerId)
                 .orElseThrow(() -> new RuntimeException("Unknown recipe serializer: " + recipeSerializerId));
-            return new RecipeHolder<>(recipeId, serializer.streamCodec().decode((RegistryFriendlyByteBuf) buffer));
+            return new RecipeHolder<>(recipeKey, serializer.streamCodec().decode((RegistryFriendlyByteBuf) buffer));
         },
         (jsonElement) -> {
             if(!jsonElement.isJsonObject()) {
@@ -510,16 +510,18 @@ public final class SerializableDataTypes {
             }
             JsonObject json = jsonElement.getAsJsonObject();
             Identifier recipeSerializerId = Identifier.tryParse(GsonHelper.getAsString(json, "type"));
-            Identifier recipeId = Identifier.tryParse(GsonHelper.getAsString(json, "id"));
+            net.minecraft.resources.ResourceKey<net.minecraft.world.item.crafting.Recipe<?>> recipeKey =
+                net.minecraft.resources.ResourceKey.create(net.minecraft.core.registries.Registries.RECIPE,
+                    Identifier.tryParse(GsonHelper.getAsString(json, "id")));
             RecipeSerializer<?> serializer = BuiltInRegistries.RECIPE_SERIALIZER.getOptional(recipeSerializerId)
                 .orElseThrow(() -> new RuntimeException("Unknown recipe serializer: " + recipeSerializerId));
-            return new RecipeHolder<>(recipeId, serializer.codec().parse(JsonOps.INSTANCE, json).resultOrPartial(Calio.LOGGER::error).orElseThrow(() -> new RuntimeException("Failed to read recipe json.")));
+            return new RecipeHolder<>(recipeKey, serializer.codec().codec().parse(com.mojang.serialization.JsonOps.INSTANCE, json).resultOrPartial(Calio.LOGGER::error).orElseThrow(() -> new RuntimeException("Failed to read recipe json.")));
         },
         recipe -> {
             JsonObject json = new JsonObject();
             json.addProperty("type", BuiltInRegistries.RECIPE_SERIALIZER.getKey(recipe.value().getSerializer()).toString());
-            json.addProperty("id", recipe.id().toString());
-            recipe.value().getSerializer().codec().encodeStart(JsonOps.INSTANCE, recipe.value()).resultOrPartial(Calio.LOGGER::error).ifPresent(o -> {
+            json.addProperty("id", recipe.id().identifier().toString());
+            recipe.value().getSerializer().codec().codec().encodeStart(com.mojang.serialization.JsonOps.INSTANCE, recipe.value()).resultOrPartial(Calio.LOGGER::error).ifPresent(o -> {
                 for (Map.Entry<String, JsonElement> j : ((JsonObject) o).entrySet()) {
                     json.add(j.getKey(), j.getValue());
                 }
@@ -536,7 +538,7 @@ public final class SerializableDataTypes {
 
     public static final SerializableDataType<Fluid> FLUID = SerializableDataType.registry(Fluid.class, BuiltInRegistries.FLUID);
 
-    public static final SerializableDataType<FogData.FogMode> CAMERA_SUBMERSION_TYPE = SerializableDataType.enumValue(FogData.FogMode.class);
+    public static final SerializableDataType<net.minecraft.client.renderer.fog.FogRenderer.FogMode> CAMERA_SUBMERSION_TYPE = SerializableDataType.enumValue(net.minecraft.client.renderer.fog.FogRenderer.FogMode.class);
 
     public static final SerializableDataType<InteractionHand> HAND = SerializableDataType.enumValue(InteractionHand.class);
 
@@ -553,7 +555,7 @@ public final class SerializableDataTypes {
             "fail", InteractionResult.FAIL
         )));
 
-    public static final SerializableDataType<UseAnim> USE_ACTION = SerializableDataType.enumValue(UseAnim.class);
+    public static final SerializableDataType<net.minecraft.world.item.ItemUseAnimation> USE_ACTION = SerializableDataType.enumValue(net.minecraft.world.item.ItemUseAnimation.class);
 
     public static final SerializableDataType<MobEffectChance> STATUS_EFFECT_CHANCE =
         SerializableDataType.compound(MobEffectChance.class, new SerializableData()

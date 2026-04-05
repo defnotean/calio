@@ -2,6 +2,7 @@ package io.github.apace100.calio.util;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 import com.google.gson.JsonSyntaxException;
 import com.mojang.datafixers.util.Either;
@@ -16,7 +17,6 @@ import net.minecraft.resources.Identifier;
 
 import java.util.*;
 
-//  TODO: Implement support for optional entries
 @SuppressWarnings("unused")
 public class TagLike<T> {
 
@@ -107,40 +107,60 @@ public class TagLike<T> {
 
     }
 
-    private static <T> Either<TagKey<T>, Identifier> parse(Registry<T> registry, JsonElement jsonElement) {
-
-        if (!(jsonElement instanceof JsonPrimitive jsonPrimitive) || !jsonPrimitive.isString()) {
-            throw new JsonSyntaxException("Expected a string.");
-        }
+    /**
+     * Parses a single entry. Supports:
+     * <ul>
+     *   <li>A plain string: {@code "minecraft:foo"} or {@code "#minecraft:some_tag"}</li>
+     *   <li>An object: {@code {"id": "minecraft:foo", "required": false}} — optional entries that are
+     *       missing are silently skipped; required (default) entries throw an error if missing.</li>
+     * </ul>
+     */
+    private static <T> Optional<Either<TagKey<T>, Identifier>> parse(Registry<T> registry, JsonElement jsonElement) {
 
         Map<TagKey<?>, Collection<Holder<?>>> registryTags = Calio.REGISTRY_TAGS.get();
         ResourceKey<? extends Registry<T>> registryKey = registry.key();
 
-        String entry = jsonElement.getAsString();
+        String entry;
+        boolean required = true;
+
+        if (jsonElement instanceof JsonPrimitive jsonPrimitive && jsonPrimitive.isString()) {
+            entry = jsonPrimitive.getAsString();
+        } else if (jsonElement instanceof JsonObject jsonObject) {
+            if (!jsonObject.has("id")) {
+                throw new JsonSyntaxException("Expected object entry to have an 'id' field.");
+            }
+            entry = jsonObject.get("id").getAsString();
+            required = !jsonObject.has("required") || jsonObject.get("required").getAsBoolean();
+        } else {
+            throw new JsonSyntaxException("Expected a string or an object with an 'id' field.");
+        }
+
         Identifier entryId;
 
         if (entry.startsWith("#")) {
-
             entryId = DynamicIdentifier.of(entry.substring(1));
             TagKey<T> entryTag = TagKey.create(registryKey, entryId);
 
             if (registryTags != null && !registryTags.containsKey(entryTag)) {
-                throw new IllegalArgumentException("Tag \"" + entryId + "\" for registry \"" + registryKey.location() + "\" doesn't exist.");
+                if (required) {
+                    throw new IllegalArgumentException("Tag \"" + entryId + "\" for registry \"" + registryKey.registry() + "\" doesn't exist.");
+                }
+                return Optional.empty();
             }
 
-            return Either.left(entryTag);
+            return Optional.of(Either.left(entryTag));
 
-        }
-
-        else {
-
+        } else {
             entryId = DynamicIdentifier.of(entry);
+
             if (!registry.containsKey(entryId)) {
-                throw new IllegalArgumentException("Type \"" + entryId + "\" is not registered in registry \"" + registryKey.location() + "\".");
+                if (required) {
+                    throw new IllegalArgumentException("Type \"" + entryId + "\" is not registered in registry \"" + registryKey.registry() + "\".");
+                }
+                return Optional.empty();
             }
 
-            return Either.right(entryId);
-
+            return Optional.of(Either.right(entryId));
         }
 
     }
@@ -153,9 +173,9 @@ public class TagLike<T> {
             for (int i = 0; i < jsonArray.size(); i++) {
 
                 try {
-                    parse(registry, jsonArray.get(i))
-                        .ifLeft(tagLike::addTag)
-                        .ifRight(tagLike::add);
+                    parse(registry, jsonArray.get(i)).ifPresent(result ->
+                        result.ifLeft(tagLike::addTag).ifRight(tagLike::add)
+                    );
                 }
 
                 catch (DataException de) {
@@ -171,13 +191,19 @@ public class TagLike<T> {
         }
 
         else if (jsonElement instanceof JsonPrimitive jsonPrimitive && jsonPrimitive.isString()) {
-            parse(registry, jsonElement)
-                .ifLeft(tagLike::addTag)
-                .ifRight(tagLike::add);
+            parse(registry, jsonElement).ifPresent(result ->
+                result.ifLeft(tagLike::addTag).ifRight(tagLike::add)
+            );
+        }
+
+        else if (jsonElement instanceof JsonObject) {
+            parse(registry, jsonElement).ifPresent(result ->
+                result.ifLeft(tagLike::addTag).ifRight(tagLike::add)
+            );
         }
 
         else {
-            throw new JsonSyntaxException("Expected a JSON array or a string.");
+            throw new JsonSyntaxException("Expected a JSON array, a string, or an object.");
         }
 
         return tagLike;
@@ -213,7 +239,7 @@ public class TagLike<T> {
             array.add("#" + tagKey.location().toString());
         }
 
-        for(T t : items) {
+        for (T t : items) {
 
             Identifier id = registry.getKey(t);
 

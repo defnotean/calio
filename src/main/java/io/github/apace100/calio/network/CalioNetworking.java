@@ -1,6 +1,5 @@
 package io.github.apace100.calio.network;
 
-import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
@@ -29,12 +28,28 @@ public class CalioNetworking {
             );
 
         @Override
-        public Type<? extends CustomPacketPayload> type() {
+        public CustomPacketPayload.Type<? extends CustomPacketPayload> type() {
             return TYPE;
         }
     }
 
     public static void register() {
-        PayloadTypeRegistry.playS2C().register(SyncDataObjectRegistryPayload.TYPE, SyncDataObjectRegistryPayload.CODEC);
+        try {
+            // Try Fabric API PayloadTypeRegistry if available
+            Class<?> registryClass = Class.forName("net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry");
+            // PLAY_S2C is the static field in newer versions, playS2C() is the method in older
+            try {
+                Object s2c = registryClass.getMethod("playS2C").invoke(null);
+                s2c.getClass().getMethod("register", CustomPacketPayload.Type.class, net.minecraft.network.codec.StreamCodec.class)
+                    .invoke(s2c, SyncDataObjectRegistryPayload.TYPE, SyncDataObjectRegistryPayload.CODEC);
+            } catch (Exception e) {
+                // Fallback: try PLAY_S2C field
+                Object s2c = registryClass.getField("PLAY_S2C").get(null);
+                s2c.getClass().getMethod("register", CustomPacketPayload.Type.class, net.minecraft.network.codec.StreamCodec.class)
+                    .invoke(s2c, SyncDataObjectRegistryPayload.TYPE, SyncDataObjectRegistryPayload.CODEC);
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to register Calio networking payload", e);
+        }
     }
 }

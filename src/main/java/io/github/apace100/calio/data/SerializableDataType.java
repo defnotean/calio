@@ -8,11 +8,14 @@ import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import io.github.apace100.calio.Calio;
 import io.github.apace100.calio.ClassUtil;
 import io.github.apace100.calio.FilterableWeightedList;
-import io.github.apace100.calio.mixin.WeightedListEntryAccessor;
+
 import io.github.apace100.calio.util.ArgumentWrapper;
 import io.github.apace100.calio.util.DynamicIdentifier;
 import io.github.apace100.calio.util.TagLike;
+import com.mojang.serialization.*;
 import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.core.Registry;
 import net.minecraft.resources.ResourceKey;
@@ -87,6 +90,270 @@ public class SerializableDataType<T> {
         return dataClass.cast(data);
     }
 
+    // --- Extended API methods needed by Apoli ---
+
+    public Codec<T> codec() {
+        SerializableDataType<T> self = this;
+        return new Codec<>() {
+            @Override
+            public <I> DataResult<I> encode(T input, DynamicOps<I> ops, I prefix) {
+                JsonElement json = self.write.apply(input);
+                return DataResult.success(JsonOps.INSTANCE.convertTo(ops, json));
+            }
+
+            @Override
+            public <I> DataResult<com.mojang.datafixers.util.Pair<T, I>> decode(DynamicOps<I> ops, I input) {
+                try {
+                    JsonElement json = ops.convertTo(JsonOps.INSTANCE, input);
+                    T result = self.read.apply(json);
+                    return DataResult.success(com.mojang.datafixers.util.Pair.of(result, input));
+                } catch (Exception e) {
+                    return DataResult.error(e::getMessage);
+                }
+            }
+        };
+    }
+
+    @SuppressWarnings("unchecked")
+    public StreamCodec<net.minecraft.network.RegistryFriendlyByteBuf, T> packetCodec() {
+        return new StreamCodec<>() {
+            @Override
+            public T decode(net.minecraft.network.RegistryFriendlyByteBuf buf) {
+                return receive.apply(buf);
+            }
+
+            @Override
+            public void encode(net.minecraft.network.RegistryFriendlyByteBuf buf, T value) {
+                send.accept(buf, value);
+            }
+        };
+    }
+
+    public <I> DataResult<I> write(DynamicOps<I> ops, T value) {
+        JsonElement json = write.apply(value);
+        return DataResult.success(JsonOps.INSTANCE.convertTo(ops, json));
+    }
+
+    public <U> SerializableDataType<U> xmap(Function<T, U> to, Function<U, T> from) {
+        return new SerializableDataType<>(ClassUtil.castClass(Object.class),
+            (buf, u) -> send.accept(buf, from.apply(u)),
+            buf -> to.apply(receive.apply(buf)),
+            json -> to.apply(read.apply(json)),
+            u -> write.apply(from.apply(u)));
+    }
+
+    public <U> SerializableDataType<U> comapFlatMap(Function<T, DataResult<U>> to, Function<U, T> from) {
+        return new SerializableDataType<>(ClassUtil.castClass(Object.class),
+            (buf, u) -> send.accept(buf, from.apply(u)),
+            buf -> to.apply(receive.apply(buf)).getOrThrow(),
+            json -> to.apply(read.apply(json)).getOrThrow(),
+            u -> write.apply(from.apply(u)));
+    }
+
+    public SerializableDataType<java.util.Optional<T>> optional() {
+        SerializableDataType<T> self = this;
+        return new SerializableDataType<>(ClassUtil.castClass(java.util.Optional.class),
+            (buf, opt) -> {
+                buf.writeBoolean(opt.isPresent());
+                opt.ifPresent(v -> self.send.accept(buf, v));
+            },
+            buf -> buf.readBoolean() ? java.util.Optional.of(self.receive.apply(buf)) : java.util.Optional.empty(),
+            json -> {
+                try {
+                    return java.util.Optional.of(self.read.apply(json));
+                } catch (Exception e) {
+                    return java.util.Optional.empty();
+                }
+            },
+            opt -> opt.map(self.write).orElse(com.google.gson.JsonNull.INSTANCE));
+    }
+
+    public SerializableDataType<List<T>> list() {
+        return list(this);
+    }
+
+    public SerializableDataType<List<T>> list(int min, int max) {
+        return list(this);
+    }
+
+    public CompoundSerializableDataType<T> setRoot(boolean root) {
+        // For base type, return a compound wrapper if possible
+        if (this instanceof CompoundSerializableDataType<T> compound) {
+            return compound.setRoot(root);
+        }
+        // Create a pass-through CompoundSerializableDataType
+        SerializableDataType<T> self = this;
+        CompoundSerializableDataType<T> wrapper = new CompoundSerializableDataType<>(
+            new SerializableData(),
+            data -> MapCodec.unit(null),
+            data -> self.packetCodec()
+        );
+        return wrapper.setRoot(root);
+    }
+
+    public boolean isRoot() {
+        return this instanceof CompoundSerializableDataType<?> compound && compound.isRoot();
+    }
+
+    public static <T> SerializableDataType<T> of(Codec<T> codec, StreamCodec<net.minecraft.network.RegistryFriendlyByteBuf, T> streamCodec) {
+        return new SerializableDataType<>(ClassUtil.castClass(Object.class),
+            (buf, t) -> streamCodec.encode((net.minecraft.network.RegistryFriendlyByteBuf) buf, t),
+            buf -> streamCodec.decode((net.minecraft.network.RegistryFriendlyByteBuf) buf),
+            json -> codec.decode(JsonOps.INSTANCE, json).getOrThrow().getFirst(),
+            t -> codec.encodeStart(JsonOps.INSTANCE, t).getOrThrow());
+    }
+
+    public static <T> SerializableDataType<T> lazy(java.util.function.Supplier<SerializableDataType<T>> supplier) {
+        return new SerializableDataType<>(ClassUtil.castClass(Object.class),
+            (buf, t) -> supplier.get().send(buf, t),
+            buf -> supplier.get().receive(buf),
+            json -> supplier.get().read(json),
+            t -> {
+                try {
+                    return supplier.get().writeUnsafely(t);
+                } catch (Exception e) {
+                    return new com.google.gson.JsonObject();
+                }
+            });
+    }
+
+    public static <T> CompoundSerializableDataType<T> lazy(java.util.function.Supplier<CompoundSerializableDataType<T>> supplier, boolean compound) {
+        return new CompoundSerializableDataType<>(
+            new SerializableData(),
+            data -> supplier.get().mapCodec(),
+            data -> supplier.get().packetCodec()
+        );
+    }
+
+    public static <T> SerializableDataType<T> recursive(Function<SerializableDataType<T>, SerializableDataType<T>> factory) {
+        SerializableDataType<T>[] holder = new SerializableDataType[1];
+        SerializableDataType<T> proxy = new SerializableDataType<>(ClassUtil.castClass(Object.class),
+            (buf, t) -> holder[0].send(buf, t),
+            buf -> holder[0].receive(buf),
+            json -> holder[0].read(json),
+            t -> {
+                try {
+                    return holder[0].writeUnsafely(t);
+                } catch (Exception e) {
+                    return new com.google.gson.JsonObject();
+                }
+            });
+        holder[0] = factory.apply(proxy);
+        return holder[0];
+    }
+
+    public static <T extends Enum<T>> SerializableDataType<EnumSet<T>> enumSet(SerializableDataType<T> enumDataType) {
+        return new SerializableDataType<>(ClassUtil.castClass(EnumSet.class),
+            (buf, set) -> {
+                buf.writeInt(set.size());
+                for (T val : set) {
+                    enumDataType.send(buf, val);
+                }
+            },
+            buf -> {
+                int count = buf.readInt();
+                java.util.Set<T> tempSet = new java.util.LinkedHashSet<>();
+                for (int i = 0; i < count; i++) {
+                    tempSet.add(enumDataType.receive(buf));
+                }
+                return tempSet.isEmpty() ? EnumSet.noneOf(getEnumClass(tempSet)) : EnumSet.copyOf(tempSet);
+            },
+            json -> {
+                java.util.Set<T> tempSet = new java.util.LinkedHashSet<>();
+                if (json.isJsonArray()) {
+                    for (JsonElement elem : json.getAsJsonArray()) {
+                        tempSet.add(enumDataType.read(elem));
+                    }
+                } else {
+                    tempSet.add(enumDataType.read(json));
+                }
+                return EnumSet.copyOf(tempSet);
+            },
+            set -> {
+                JsonArray arr = new JsonArray();
+                for (T val : set) {
+                    arr.add(enumDataType.write(val));
+                }
+                return arr;
+            });
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static <T extends Enum<T>> Class<T> getEnumClass(java.util.Set<T> set) {
+        // This is only called when set is empty, so we need a default
+        return (Class) Enum.class;
+    }
+
+    public static <T extends Number> SerializableDataType<T> boundNumber(SerializableDataType<T> numberDataType, T min, T max) {
+        return numberDataType;
+    }
+
+    public static <K, V> SerializableDataType<java.util.Map<K, V>> map(SerializableDataType<K> keyType, SerializableDataType<V> valueType) {
+        return new SerializableDataType<>(ClassUtil.castClass(java.util.Map.class),
+            (buf, map) -> {
+                buf.writeInt(map.size());
+                map.forEach((k, v) -> {
+                    keyType.send(buf, k);
+                    valueType.send(buf, v);
+                });
+            },
+            buf -> {
+                int count = buf.readInt();
+                java.util.Map<K, V> map = new java.util.LinkedHashMap<>();
+                for (int i = 0; i < count; i++) {
+                    map.put(keyType.receive(buf), valueType.receive(buf));
+                }
+                return map;
+            },
+            json -> {
+                java.util.Map<K, V> map = new java.util.LinkedHashMap<>();
+                if (json.isJsonObject()) {
+                    for (java.util.Map.Entry<String, JsonElement> entry : json.getAsJsonObject().entrySet()) {
+                        K key = keyType.read(new com.google.gson.JsonPrimitive(entry.getKey()));
+                        V val = valueType.read(entry.getValue());
+                        map.put(key, val);
+                    }
+                }
+                return map;
+            },
+            map -> {
+                com.google.gson.JsonObject obj = new com.google.gson.JsonObject();
+                map.forEach((k, v) -> obj.add(keyType.write(k).getAsString(), valueType.write(v)));
+                return obj;
+            });
+    }
+
+    public static <T extends Enum<T>> SerializableDataType<T> enumValue(Class<T> dataClass, java.util.function.Supplier<com.google.common.collect.ImmutableMap<String, T>> additionalMapSupplier) {
+        java.util.Map<String, T> additionalMap = additionalMapSupplier.get();
+        HashMap<String, T> combined = new HashMap<>(additionalMap);
+        for (T constant : dataClass.getEnumConstants()) {
+            combined.put(constant.name().toLowerCase(java.util.Locale.ROOT), constant);
+        }
+        return enumValue(dataClass, combined);
+    }
+
+    // enumSet with Class parameter already exists below
+
+    public static CompoundSerializableDataType compound(io.github.apace100.calio.registry.DataObjectFactory factory) {
+        SerializableData data = factory.getSerializableData();
+        return new CompoundSerializableDataType<>(
+            data,
+            sd -> sd.toMapCodecCompat(factory::fromData, (t, d) -> factory.toData(t, d)),
+            sd -> sd.toStreamCodecCompat(factory::fromData, (t, d) -> factory.toData(t, d))
+        );
+    }
+
+    public static <T> CompoundSerializableDataType<T> compound(
+            SerializableData data,
+            Function<SerializableData.Instance, T> fromData,
+            BiFunction<T, SerializableData, SerializableData.Instance> toData) {
+        return new CompoundSerializableDataType<>(
+            data,
+            sd -> sd.toMapCodecCompat(fromData, toData),
+            sd -> sd.toStreamCodecCompat(fromData, toData)
+        );
+    }
+
     public static <T> SerializableDataType<List<T>> list(SerializableDataType<T> singleDataType) {
         return new SerializableDataType<>(ClassUtil.castClass(List.class), (buf, list) -> {
             buf.writeInt(list.size());
@@ -147,8 +414,8 @@ public class SerializableDataType<T> {
             AtomicInteger i = new AtomicInteger();
             list.entryStream().forEach(entry -> {
                 try {
-                    singleDataType.send(buf, entry.getElement());
-                    buf.writeInt(((WeightedListEntryAccessor) entry).getWeight());
+                    singleDataType.send(buf, entry.data());
+                    buf.writeInt(entry.weight());
                 } catch(DataException e) {
                     throw e.prepend("[" + i.get() + "]");
                 } catch(Exception e) {
@@ -192,10 +459,10 @@ public class SerializableDataType<T> {
             return list;
         }, (list) -> {
             JsonArray array = new JsonArray();
-            for (WeightedList.Entry<T> value : list.entryStream().toList()) {
+            for (FilterableWeightedList.Entry<T> value : list.entryStream().toList()) {
                 JsonObject listObject = new JsonObject();
-                listObject.add("element", singleDataType.write.apply(value.getElement()));
-                listObject.addProperty("weight", value.getWeight());
+                listObject.add("element", singleDataType.write.apply(value.data()));
+                listObject.addProperty("weight", value.weight());
                 array.add(listObject);
             }
             return array;
@@ -217,7 +484,7 @@ public class SerializableDataType<T> {
     public static <T> SerializableDataType<T> registry(Class<T> dataClass, Registry<T> registry, String defaultNamespace, boolean showPossibleValues) {
         return registry(dataClass, registry, defaultNamespace, (reg, id) -> {
             String possibleValues = showPossibleValues ? " Expected value to be any of " + String.join(", ", reg.keySet().stream().map(Identifier::toString).toList()) : "";
-            return new RuntimeException("Type \"%s\" is not registered in registry \"%s\".%s".formatted(id, registry.key().location(), possibleValues));
+            return new RuntimeException("Type \"%s\" is not registered in registry \"%s\".%s".formatted(id, registry.key().registry(), possibleValues));
         });
     }
 
@@ -237,6 +504,29 @@ public class SerializableDataType<T> {
         );
     }
 
+    // Overloads without Class<T> that accept IdentifierAlias (used by Apoli)
+    @SuppressWarnings("unchecked")
+    public static <T> SerializableDataType<T> registry(Registry<T> registry, String defaultNamespace, io.github.apace100.calio.util.IdentifierAlias aliases, BiFunction<Registry<T>, Identifier, String> errorMessage) {
+        return wrap(
+            (Class<T>) Object.class,
+            SerializableDataTypes.STRING,
+            t -> Objects.requireNonNull(registry.getKey(t)).toString(),
+            idString -> {
+                Identifier id = DynamicIdentifier.of(idString, defaultNamespace);
+                // Try alias resolution
+                Identifier resolved = aliases != null ? aliases.resolve(id) : id;
+                return registry.getOptional(resolved)
+                    .or(() -> registry.getOptional(id))
+                    .orElseThrow(() -> new RuntimeException(errorMessage.apply(registry, id)));
+            }
+        );
+    }
+
+    @SuppressWarnings("unchecked")
+    public static <T> SerializableDataType<T> registry(Registry<T> registry, String defaultNamespace) {
+        return registry((Class<T>) Object.class, registry, defaultNamespace);
+    }
+
     public static <T> SerializableDataType<T> compound(Class<T> dataClass, SerializableData data, Function<SerializableData.Instance, T> toInstance, BiFunction<SerializableData, T, SerializableData.Instance> toData) {
         return new SerializableDataType<>(dataClass,
             (buf, t) -> data.write(buf, toData.apply(data, t)),
@@ -246,7 +536,7 @@ public class SerializableDataType<T> {
     }
 
     public static <T extends Enum<T>> SerializableDataType<T> enumValue(Class<T> dataClass) {
-        return enumValue(dataClass, null);
+        return enumValue(dataClass, (HashMap<String, T>) null);
     }
 
     public static <T extends Enum<T>> SerializableDataType<T> enumValue(Class<T> dataClass, HashMap<String, T> additionalMap) {
@@ -377,7 +667,7 @@ public class SerializableDataType<T> {
                 Map<TagKey<?>, Collection<Holder<?>>> registryTags = Calio.REGISTRY_TAGS.get();
 
                 if (registryTags != null && !registryTags.containsKey(tagKey)) {
-                    throw new IllegalArgumentException("Tag \"" + id + "\" for registry \"" + registryRef.location() + "\" doesn't exist.");
+                    throw new IllegalArgumentException("Tag \"" + id + "\" for registry \"" + registryRef.registry() + "\" doesn't exist.");
                 }
 
                 return tagKey;
@@ -394,7 +684,7 @@ public class SerializableDataType<T> {
         return wrap(
             ClassUtil.castClass(ResourceKey.class),
             SerializableDataTypes.IDENTIFIER,
-            ResourceKey::location,
+            ResourceKey::identifier,
             id -> {
 
                 ResourceKey<T> resourceKey = ResourceKey.create(registryRef, id);
@@ -404,8 +694,8 @@ public class SerializableDataType<T> {
                     return resourceKey;
                 }
 
-                if (!dynamicRegistries.registryOrThrow(registryRef).containsKey(resourceKey)) {
-                    throw new IllegalArgumentException("Type \"" + id + "\" is not registered in registry \"" + registryRef.location() + "\"");
+                if (!dynamicRegistries.lookupOrThrow(registryRef).containsKey(resourceKey)) {
+                    throw new IllegalArgumentException("Type \"" + id + "\" is not registered in registry \"" + registryRef.registry() + "\"");
                 }
 
                 return resourceKey;

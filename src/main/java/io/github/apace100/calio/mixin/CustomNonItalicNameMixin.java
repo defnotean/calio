@@ -24,7 +24,7 @@ public abstract class CustomNonItalicNameMixin {
     public abstract static class ModifyItalicDisplayItem {
         @Redirect(method = "getTooltipLines", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/item/ItemStack;hasCustomHoverName()Z"))
         private boolean hasCustomNameWhichIsItalic(ItemStack stack) {
-            return stack.hasCustomHoverName() && !Calio.hasNonItalicName(stack);
+            return stack.has(DataComponents.CUSTOM_NAME) && !Calio.hasNonItalicName(stack);
         }
     }
 
@@ -32,7 +32,7 @@ public abstract class CustomNonItalicNameMixin {
     public abstract static class ModifyItalicDisplayHud {
         @Redirect(method = "renderSelectedItemName", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/item/ItemStack;hasCustomHoverName()Z"))
         private boolean hasCustomNameWhichIsItalic(ItemStack stack) {
-            return stack.hasCustomHoverName() && !Calio.hasNonItalicName(stack);
+            return stack.has(DataComponents.CUSTOM_NAME) && !Calio.hasNonItalicName(stack);
         }
     }
 
@@ -42,14 +42,13 @@ public abstract class CustomNonItalicNameMixin {
         private void removeNonItalicFlag(CallbackInfo ci, ItemStack itemStack, int i, int j, int k, ItemStack itemStack2) {
             if(itemStack2.has(DataComponents.CUSTOM_DATA)) {
                 CompoundTag tag = itemStack2.getOrDefault(DataComponents.CUSTOM_DATA, CustomData.EMPTY).copyTag();
-                if(tag.contains("display")) {
-                    CompoundTag display = tag.getCompound("display");
+                tag.getCompound("display").ifPresent(display -> {
                     if(display.contains(NbtConstants.NON_ITALIC_NAME)) {
                         display.remove(NbtConstants.NON_ITALIC_NAME);
                         tag.put("display", display);
                         itemStack2.set(DataComponents.CUSTOM_DATA, CustomData.of(tag));
                     }
-                }
+                });
             }
         }
     }

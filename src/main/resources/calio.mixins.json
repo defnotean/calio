@@ -11,9 +11,7 @@
         "RegistrySyncMixin",
         "ShapedRecipeAccessor",
         "ShapedRecipeMixin",
-        "ShapedRecipeMixin$SerializerMixin",
-        "TagManagerLoaderMixin",
-        "WeightedListEntryAccessor"
+        "ShapedRecipeMixin$SerializerMixin"
     ],
     "client": [
         "CustomNonItalicNameMixin$ModifyItalicDisplayHud",

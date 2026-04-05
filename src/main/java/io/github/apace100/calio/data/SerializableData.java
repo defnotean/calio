@@ -3,15 +3,19 @@ package io.github.apace100.calio.data;
 import com.google.common.collect.ImmutableSet;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonSyntaxException;
+import com.mojang.serialization.*;
 import io.github.apace100.calio.Calio;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.resources.Identifier;
 
-import java.util.HashMap;
-import java.util.LinkedHashMap;
+import java.util.*;
+import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.stream.Stream;
 
 @SuppressWarnings("unused")
 public class SerializableData {
@@ -25,6 +29,8 @@ public class SerializableData {
     public static final ThreadLocal<String> CURRENT_PATH = new ThreadLocal<>();
 
     private final LinkedHashMap<String, Field<?>> dataFields = new LinkedHashMap<>();
+    private final List<Function<Instance, DataResult<Instance>>> validators = new ArrayList<>();
+    private boolean root = false;
 
     public SerializableData add(String name, SerializableDataType<?> type) {
         dataFields.put(name, new Field<>(type));
@@ -97,6 +103,13 @@ public class SerializableData {
             }
         });
 
+        validators.forEach(validator -> {
+            DataResult<Instance> result = validator.apply(instance);
+            result.error().ifPresent(e -> {
+                throw new RuntimeException(e.message());
+            });
+        });
+
         return instance;
 
     }
@@ -122,17 +135,157 @@ public class SerializableData {
             }
         });
 
+        validators.forEach(validator -> {
+            DataResult<Instance> result = validator.apply(instance);
+            result.error().ifPresent(e -> {
+                throw new JsonSyntaxException(e.message());
+            });
+        });
+
         return instance;
 
+    }
+
+    public SerializableData validate(Function<Instance, DataResult<Instance>> validator) {
+        this.validators.add(validator);
+        return this;
+    }
+
+    public boolean isRoot() {
+        return root;
+    }
+
+    public SerializableData markRoot() {
+        this.root = true;
+        return this;
+    }
+
+    public SerializableData setRoot(boolean root) {
+        this.root = root;
+        return this;
+    }
+
+    public Instance instance() {
+        return new Instance();
+    }
+
+    public <I> Stream<I> keys(DynamicOps<I> ops) {
+        return dataFields.keySet().stream().map(ops::createString);
+    }
+
+    public <I> DataResult<Instance> decode(DynamicOps<I> ops, MapLike<I> input) {
+        Instance instance = new Instance();
+        for (Map.Entry<String, Field<?>> entry : dataFields.entrySet()) {
+            String name = entry.getKey();
+            Field<?> field = entry.getValue();
+            try {
+                I value = input.get(name);
+                if (value != null) {
+                    instance.set(name, decodeField(field, ops, value));
+                } else if (field.hasDefault()) {
+                    instance.set(name, field.getDefault(instance));
+                }
+            } catch (Exception e) {
+                return DataResult.error(() -> "Failed to decode field '" + name + "': " + e.getMessage());
+            }
+        }
+        for (Function<Instance, DataResult<Instance>> validator : validators) {
+            DataResult<Instance> result = validator.apply(instance);
+            if (result.error().isPresent()) {
+                return result;
+            }
+        }
+        return DataResult.success(instance);
+    }
+
+    @SuppressWarnings("unchecked")
+    private <I, T> T decodeField(Field<T> field, DynamicOps<I> ops, I value) {
+        if (ops instanceof com.mojang.serialization.JsonOps) {
+            com.google.gson.JsonElement json = (com.google.gson.JsonElement) value;
+            return field.getDataType().read(json);
+        }
+        // Fallback: convert to JSON via Dynamic
+        com.mojang.serialization.Dynamic<I> dynamic = new com.mojang.serialization.Dynamic<>(ops, value);
+        com.google.gson.JsonElement json = dynamic.convert(com.mojang.serialization.JsonOps.INSTANCE).getValue();
+        return field.getDataType().read(json);
+    }
+
+    public <I> RecordBuilder<I> encode(Instance instance, DynamicOps<I> ops, RecordBuilder<I> prefix) {
+        for (Map.Entry<String, Field<?>> entry : dataFields.entrySet()) {
+            String name = entry.getKey();
+            Field<?> field = entry.getValue();
+            if (instance.data.containsKey(name) && instance.data.get(name) != null) {
+                try {
+                    I encoded = encodeField(field, ops, instance.get(name));
+                    prefix.add(name, encoded);
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        return prefix;
+    }
+
+    @SuppressWarnings("unchecked")
+    private <I, T> I encodeField(Field<T> field, DynamicOps<I> ops, Object value) throws Exception {
+        com.google.gson.JsonElement json = field.getDataType().writeUnsafely(value);
+        return com.mojang.serialization.JsonOps.INSTANCE.convertTo(ops, json);
+    }
+
+    public void send(FriendlyByteBuf buffer, Instance instance) {
+        write(buffer, instance);
+    }
+
+    public Instance receive(FriendlyByteBuf buffer) {
+        return read(buffer);
     }
 
     public SerializableData copy() {
 
         SerializableData copy = new SerializableData();
         copy.dataFields.putAll(dataFields);
+        copy.validators.addAll(this.validators);
+        copy.root = this.root;
 
         return copy;
 
+    }
+
+    @SuppressWarnings("unchecked")
+    public <T> MapCodec<T> toMapCodecCompat(Function<Instance, T> fromData, BiFunction<T, SerializableData, Instance> toData) {
+        SerializableData self = this;
+        return new MapCodec<>() {
+            @Override
+            public <I> Stream<I> keys(DynamicOps<I> ops) {
+                return self.keys(ops);
+            }
+
+            @Override
+            public <I> DataResult<T> decode(DynamicOps<I> ops, MapLike<I> input) {
+                return self.decode(ops, input).map(fromData);
+            }
+
+            @Override
+            public <I> RecordBuilder<I> encode(T input, DynamicOps<I> ops, RecordBuilder<I> prefix) {
+                Instance instance = toData.apply(input, self);
+                return self.encode(instance, ops, prefix);
+            }
+        };
+    }
+
+    @SuppressWarnings("unchecked")
+    public <T> StreamCodec<RegistryFriendlyByteBuf, T> toStreamCodecCompat(Function<Instance, T> fromData, BiFunction<T, SerializableData, Instance> toData) {
+        SerializableData self = this;
+        return new StreamCodec<>() {
+            @Override
+            public T decode(RegistryFriendlyByteBuf buf) {
+                return fromData.apply(self.read(buf));
+            }
+
+            @Override
+            public void encode(RegistryFriendlyByteBuf buf, T value) {
+                self.write(buf, toData.apply(value, self));
+            }
+        };
     }
 
     public Iterable<String> getFieldNames() {
@@ -173,8 +326,18 @@ public class SerializableData {
             }
         }
 
-        public void set(String name, Object value) {
+        public Instance set(String name, Object value) {
             this.data.put(name, value);
+            return this;
+        }
+
+        public void validate() throws Exception {
+            for (Function<Instance, DataResult<Instance>> validator : validators) {
+                DataResult<Instance> result = validator.apply(this);
+                if (result.error().isPresent()) {
+                    throw new Exception(result.error().get().message());
+                }
+            }
         }
 
         @SuppressWarnings("unchecked")
