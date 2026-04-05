@@ -8,10 +8,7 @@
         "DataPackContentsMixin",
         "DontOverwriteAttrModsMixin",
         "IngredientAccessor",
-        "RegistrySyncMixin",
-        "ShapedRecipeAccessor",
-        "ShapedRecipeMixin",
-        "ShapedRecipeMixin$SerializerMixin"
+        "RegistrySyncMixin"
     ],
     "client": [
         "CustomNonItalicNameMixin$ModifyItalicDisplayHud",
@@ -20,5 +17,5 @@
     ],
     "injectors": {
         "defaultRequire": 1
-  }
+    }
 }
